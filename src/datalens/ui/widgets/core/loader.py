@@ -1,7 +1,7 @@
 # src/datalens/ui/widgets/core/loader.py
 from PySide6.QtCore import QTimer
 from PySide6.QtGui import QPainter, QPen
-from datalens.ui.widgets.core.themed import ThemedWidget
+from datalens.ui.widgets.core.themed_widget import ThemedWidget
 from datalens.ui.theme.app_theme import AppTheme
 
 class SpinnerLoader(ThemedWidget):

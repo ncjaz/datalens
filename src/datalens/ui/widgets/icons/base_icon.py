@@ -6,7 +6,7 @@ from PySide6.QtCore import QSize
 
 from datalens.domain.ui.icons import IconDefinition, IconRole
 from datalens.ui.theme import AppTheme
-from datalens.ui.widgets.core.themed import ThemedWidget
+from datalens.ui.widgets.core.themed_widget import ThemedWidget
 
 class BaseIconWidget(ThemedWidget):
     """
