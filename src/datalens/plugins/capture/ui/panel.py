@@ -1,0 +1,2 @@
+"""Capture plugin panel (placeholder)."""
+

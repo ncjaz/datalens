@@ -1,0 +1,70 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import Enum
+from typing import NewType, Optional
+
+PluginId = NewType("PluginId", str)
+PluginGroupId = NewType("PluginGroupId", str)
+
+
+class PluginKind(str, Enum):
+    """
+    UX categories for plugins.
+
+    - TAB: adds a workspace/tab to the main UI.
+    - SERVICE: runs logic in the background (e.g., discovery, sync).
+    - DATASOURCE: registers new DataSources.
+    - MODEL: registers new model families/variants.
+    """
+
+    TAB = "tab"
+    SERVICE = "service"
+    DATASOURCE = "datasource"
+    MODEL = "model"
+
+
+@dataclass(frozen=True)
+class PluginFeature:
+    """
+    A specific feature exposed by a plugin.
+
+    For example, a single plugin might expose:
+      - one TAB feature (annotation workspace)
+      - one SERVICE feature (background sync)
+    """
+
+    id: str  # stable, unique within a plugin
+    kind: PluginKind
+    entrypoint: str  # 'module.path:ClassName' or a hook identifier
+    display_name: str
+    description: str
+
+
+@dataclass(frozen=True)
+class PluginDefinition:
+    """
+    Plugin metadata used by the loader, registry, and welcome UI.
+
+    This is normally populated from a plugin manifest file plus a
+    small bit of introspection.
+    """
+
+    id: PluginId
+    name: str
+    version: str
+    description: str
+    features: tuple[PluginFeature, ...]
+    author: Optional[str] = None
+    homepage: Optional[str] = None
+    # Minimal core compatibility string (e.g. '>=2.0.0')
+    core_version_constraint: Optional[str] = None
+    # Optional grouping label used by the welcome UI to present related plugins
+    # together (e.g. "Data annotation" for annotation + review).
+    group: Optional[PluginGroupId] = None
+    # Names of Python packages that must be installed manually by the user even
+    # if the plugin ships a requirements.txt (e.g. torch with OS/CUDA-specific
+    # wheels). The welcome UI can surface these as "manual install" blockers.
+    manual_pip_requirements: tuple[str, ...] = ()
+    enabled_by_default: bool = True
+    builtin: bool = False  # True for plugins bundled with the app

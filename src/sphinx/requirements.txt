@@ -1,0 +1,9 @@
+sphinx
+sphinx-autobuild
+myst-parser
+sphinx-autodoc-typehints
+sphinxcontrib-mermaid
+pydata-sphinx-theme
+furo
+linkify-it-py
+

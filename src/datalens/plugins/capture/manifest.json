@@ -1,0 +1,18 @@
+{
+  "id": "capture",
+  "name": "Capture",
+  "version": "1.0.0",
+  "description": "Capture images/video from connected devices.",
+  "group": "Capture",
+  "enabled_by_default": false,
+  "features": [
+    {
+      "id": "workspace",
+      "kind": "tab",
+      "entrypoint": "datalens.plugins.capture.capture:CaptureWorkspace",
+      "display_name": "Capture",
+      "description": "Capture media from webcams and other devices."
+    }
+  ]
+}
+

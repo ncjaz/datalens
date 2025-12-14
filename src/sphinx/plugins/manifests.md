@@ -1,0 +1,55 @@
+# Plugin manifests
+
+Plugins should declare their features declaratively so the runtime can present a
+consistent enable/disable UX and validate compatibility.
+
+Minimum manifest fields:
+
+- `id`, `name`, `version`
+- optional `group` (e.g. `Data annotation`, `Models`)
+- optional `core_version_constraint`
+- list of feature entries (kind + entrypoint + display metadata)
+- optional dependency declaration (see below)
+
+As V2 grows, keep manifests stable and evolve via additive fields.
+
+## Grouping
+
+Grouping is a UX hint so related plugins can be displayed together on the
+welcome screen (and in any “workspace features” selector).
+
+Example groups:
+
+- **Data annotation**: Annotation + Review plugins
+- **Models**: Train + Evaluation plugins
+
+UI idea:
+
+- Plugins in the same group can be rendered as adjacent cards with a shared
+  outline and a small group header label.
+
+## Dependencies (module checks + install)
+
+V1 includes feature dependency checks and an installation workflow. V2 should do
+the same at the plugin level.
+
+Recommended approach:
+
+- Each plugin can ship a `requirements.txt` (or equivalent) in its plugin
+  directory.
+- The plugin loader reads that file to determine which packages to check/install.
+- The welcome screen (or plugin manager UI) checks whether those requirements
+  are satisfied and can offer an “Install” action.
+- If `PluginDefinition.manual_pip_requirements` is set, those packages are
+  treated as "manual install required" (checked but not auto-installed).
+
+Why derive from `requirements.txt`?
+
+- Keeps dependencies next to the plugin code.
+- Works for both builtin and external plugins.
+- Avoids duplicating dependency lists in multiple places.
+
+When not to use `requirements.txt`:
+
+- For very small plugins with no optional deps, an empty `requirements.txt` is
+  fine, and you can rely on `manual_pip_requirements` only when needed.

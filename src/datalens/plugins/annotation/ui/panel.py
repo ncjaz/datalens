@@ -1,0 +1,2 @@
+"""Annotation plugin panel (placeholder)."""
+

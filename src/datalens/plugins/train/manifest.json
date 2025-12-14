@@ -1,0 +1,18 @@
+{
+  "id": "train",
+  "name": "Train",
+  "version": "1.0.0",
+  "description": "Train models on your datasets.",
+  "group": "Models",
+  "enabled_by_default": false,
+  "features": [
+    {
+      "id": "workspace",
+      "kind": "tab",
+      "entrypoint": "datalens.plugins.train.train:TrainWorkspace",
+      "display_name": "Train",
+      "description": "Configure and run training jobs."
+    }
+  ]
+}
+
