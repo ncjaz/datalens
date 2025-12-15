@@ -20,11 +20,12 @@ thread.
 
 from __future__ import annotations
 
-import traceback
+import contextvars
 from typing import Any, Callable
 
 from PySide6.QtCore import QObject, Signal, QThread
 
+from datalens.core.logging import get_logger
 from datalens.infra.background.loader_context import LoaderContext
 
 
@@ -71,6 +72,7 @@ class LoaderWorker(QObject):
         super().__init__()
         self._task = task
         self._thread: QThread | None = None
+        self._context: contextvars.Context | None = None
 
     # ------------------------------------------------------------------ #
     # Thread management
@@ -86,6 +88,7 @@ class LoaderWorker(QObject):
         thread = QThread()
         self._thread = thread
         self.moveToThread(thread)
+        self._context = contextvars.copy_context()
 
         thread.started.connect(self._run_task)
 
@@ -114,9 +117,15 @@ class LoaderWorker(QObject):
         )
 
         try:
-            result = self._task(ctx)
+            if self._context is None:
+                result = self._task(ctx)
+            else:
+                result = self._context.run(self._task, ctx)
         except Exception as exc:
-            traceback.print_exc()
+            get_logger(__name__).exception(
+                "Loader task failed",
+                extra={"operation": "loader_task", "phase": "error"},
+            )
             self.failed.emit(exc)
             return
 

@@ -4,7 +4,7 @@ import json
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from datalens.infra.project_paths import project_meta_path
 
@@ -25,7 +25,7 @@ class AppMeta:
 
 DEFAULT_APP_VERSION = "1.0"
 DEFAULT_DB_VERSION = "1.0"
-DEFAULT_SCHEMA_VERSION = 1
+DEFAULT_SCHEMA_VERSION = 2
 
 
 class CoreSchemaError(RuntimeError):
@@ -84,6 +84,19 @@ def ensure_core_schema(
         )
         """
     )
+
+    if int(schema_version) >= 2:
+        # Plugin metadata (core-owned table; plugins own their rows).
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS plugin_meta (
+                plugin_id       TEXT PRIMARY KEY,
+                plugin_version  TEXT NOT NULL,
+                schema_version  INTEGER NOT NULL,
+                updated_at      TEXT NOT NULL
+            )
+            """
+        )
 
     # Initialize or update the app_meta row.
     conn.execute(
@@ -157,6 +170,7 @@ class CoreDbInspection:
     user_tables: tuple[str, ...]
     has_app_meta: bool
     has_plugin_kv: bool
+    has_plugin_meta: bool
 
 
 def inspect_core_db(conn: sqlite3.Connection) -> CoreDbInspection:
@@ -171,31 +185,48 @@ def inspect_core_db(conn: sqlite3.Connection) -> CoreDbInspection:
         user_tables=tables,
         has_app_meta=has_table(conn, "app_meta"),
         has_plugin_kv=has_table(conn, "plugin_kv"),
+        has_plugin_meta=has_table(conn, "plugin_meta"),
     )
+
+
+@dataclass(frozen=True)
+class CoreOpenDecision:
+    """
+    Decision for what core action to perform during project DB open.
+
+    `migrate` is used when the DB is a DataLens DB but has an older schema
+    version. Migrations must be core-only and additive where possible.
+    """
+
+    kind: Literal["ensure", "ok", "migrate"]
+    from_schema_version: int | None = None
+    to_schema_version: int = DEFAULT_SCHEMA_VERSION
 
 
 def decide_core_open_action(
     inspection: CoreDbInspection,
     *,
     supported_schema_version: int = DEFAULT_SCHEMA_VERSION,
-) -> str:
+) -> CoreOpenDecision:
     """
     Decide what core action is safe to take for a project DB.
 
     Returns:
-        "ensure": Core schema should be created/ensured (additive writes only).
-        "ok": DB is compatible; no core writes required during open.
+        CoreOpenDecision:
+            kind="ensure": Core schema should be created/ensured (additive writes only).
+            kind="ok": DB is compatible; no core writes required during open.
+            kind="migrate": DB is compatible but older; run core migrations.
 
     Raises:
         ForeignDatabaseError: the DB looks non-DataLens or ambiguous.
-        IncompatibleCoreSchemaError: the DB core schema is newer than supported.
+        IncompatibleCoreSchemaError: the DB core schema is newer than this app supports.
         CoreSchemaError: other unsupported/unknown states.
     """
     v = int(inspection.user_version)
 
     # New/empty DB: safe to initialize core schema.
     if v == 0 and len(inspection.user_tables) == 0:
-        return "ensure"
+        return CoreOpenDecision(kind="ensure")
 
     # DataLens DB should have core meta. If it doesn't, be conservative and refuse.
     if not inspection.has_app_meta:
@@ -211,14 +242,71 @@ def decide_core_open_action(
     if v == supported_schema_version:
         # If core meta exists but other core tables are missing, we can apply a safe,
         # additive "repair" by ensuring core schema exists.
-        if inspection.has_plugin_kv:
-            return "ok"
-        return "ensure"
+        if inspection.has_plugin_kv and (v < 2 or inspection.has_plugin_meta):
+            return CoreOpenDecision(kind="ok")
+        return CoreOpenDecision(kind="ensure")
 
-    # We do not yet implement migrations from older schema versions.
-    raise CoreSchemaError(
-        f"Project DB schema version {v} is older than supported {supported_schema_version}; migration not implemented."
+    # Older schema: migrate core-only tables.
+    return CoreOpenDecision(
+        kind="migrate",
+        from_schema_version=v,
+        to_schema_version=int(supported_schema_version),
     )
+
+
+def migrate_core_schema(
+    conn: sqlite3.Connection,
+    *,
+    from_schema_version: int,
+    to_schema_version: int = DEFAULT_SCHEMA_VERSION,
+    app_version: str = DEFAULT_APP_VERSION,
+    db_version: str = DEFAULT_DB_VERSION,
+) -> AppMeta:
+    """
+    Apply core-only migrations for a project DB.
+
+    Migrations must be additive where possible and must never touch plugin-owned
+    tables beyond core-owned metadata.
+    """
+    from_v = int(from_schema_version)
+    to_v = int(to_schema_version)
+    if from_v < 0 or to_v < 0:
+        raise CoreSchemaError(f"Invalid schema versions: {from_v} -> {to_v}")
+    if from_v > to_v:
+        raise CoreSchemaError(f"Refusing to downgrade schema: {from_v} -> {to_v}")
+
+    current = _pragma_int(conn, "user_version")
+    if current != from_v:
+        raise CoreSchemaError(
+            f"Migration version mismatch: expected user_version {from_v}, found {current}"
+        )
+
+    # v0 -> v1: bring the DB up to the initial V2 core schema and set user_version.
+    v = from_v
+    if v == 0 and to_v >= 1:
+        ensure_core_schema(
+            conn,
+            app_version=app_version,
+            db_version=db_version,
+            schema_version=1,
+        )
+        v = 1
+
+    # v1 -> v2: add plugin_meta table (core-owned) and bump user_version.
+    if v == 1 and to_v >= 2:
+        ensure_core_schema(
+            conn,
+            app_version=app_version,
+            db_version=db_version,
+            schema_version=2,
+        )
+        conn.execute("PRAGMA user_version = 2;")
+        v = 2
+
+    if v != to_v:
+        raise CoreSchemaError(f"No migration path implemented for schema {v} -> {to_v}")
+
+    return read_app_meta(conn)
 
 
 def build_project_meta(conn: sqlite3.Connection) -> dict[str, object]:

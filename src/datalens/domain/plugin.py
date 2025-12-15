@@ -24,6 +24,20 @@ class PluginKind(str, Enum):
     MODEL = "model"
 
 
+class PluginStage(str, Enum):
+    """
+    Maturity level for a plugin.
+
+    This is primarily a UX hint for the welcome screen / plugin manager so
+    users can distinguish experimental plugins from stable ones.
+    """
+
+    DEV = "dev"
+    ALPHA = "alpha"
+    BETA = "beta"
+    RELEASE = "release"
+
+
 @dataclass(frozen=True)
 class PluginFeature:
     """
@@ -55,6 +69,7 @@ class PluginDefinition:
     version: str
     description: str
     features: tuple[PluginFeature, ...]
+    stage: PluginStage = PluginStage.RELEASE
     author: Optional[str] = None
     homepage: Optional[str] = None
     # Minimal core compatibility string (e.g. '>=2.0.0')

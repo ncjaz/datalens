@@ -79,3 +79,11 @@ V2 persists lightweight app/plugin settings in `settings.json` (per user).
 - Schema: `datalens.domain.settings.AppSettings`
 - IO helpers: `datalens.services.settings_store.SettingsStore`
 - Coalesced background writes: `datalens.services.settings_store.DebouncedSettingsWriter`
+
+## Logging
+
+V2 uses a single, async logging pipeline that is safe for the UI thread and
+adds attribution fields (layer/subsystem/execution/plugin id).
+
+- Implementation: `datalens.core.logging`
+- Plugin-facing overview: :doc:`plugins/logging`

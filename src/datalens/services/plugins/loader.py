@@ -5,15 +5,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from datalens.core.logging import get_logger
 from datalens.domain.plugin import (
     PluginDefinition,
     PluginFeature,
     PluginGroupId,
     PluginId,
     PluginKind,
+    PluginStage,
 )
 from datalens.infra.paths import user_plugins_dir
 from datalens.services.plugins.registry import PluginLocation, PluginOrigin, PluginRecord, PluginRegistry, PluginRequirements
+
+
+log = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -28,7 +33,7 @@ class PluginDiscoveryResult:
     issues: tuple[PluginDiscoveryIssue, ...]
 
 
-def _default_builtin_plugins_dir() -> Path:
+def _default_shipped_plugins_dir() -> Path:
     # datalens/services/plugins/loader.py -> datalens/ (parents[2]) -> plugins/
     return Path(__file__).resolve().parents[2] / "plugins"
 
@@ -104,6 +109,16 @@ def _plugin_definition_from_manifest_json(*, plugin_dir: Path, builtin: bool) ->
     group_raw = payload.get("group")
     group = PluginGroupId(group_raw) if isinstance(group_raw, str) and group_raw else None
 
+    stage_raw = payload.get("stage", "release")
+    if stage_raw is None:
+        stage_raw = "release"
+    if not isinstance(stage_raw, str):
+        stage_raw = str(stage_raw)
+    try:
+        stage = PluginStage(stage_raw)
+    except Exception as exc:
+        raise ValueError(f"Unknown manifest.stage {stage_raw!r}") from exc
+
     core_version_constraint = payload.get("core_version_constraint")
     if core_version_constraint is not None and not isinstance(core_version_constraint, str):
         core_version_constraint = str(core_version_constraint)
@@ -139,6 +154,7 @@ def _plugin_definition_from_manifest_json(*, plugin_dir: Path, builtin: bool) ->
         version=version,
         description=description,
         features=features,
+        stage=stage,
         author=author,
         homepage=homepage,
         core_version_constraint=core_version_constraint,
@@ -179,7 +195,7 @@ def _discover_plugins_under_root(*, root: Path, origin: PluginOrigin) -> tuple[l
 
 def discover_plugins(
     *,
-    builtin_plugins_dir: Path | None = None,
+    shipped_plugins_dir: Path | None = None,
     user_plugins_root_dir: Path | None = None,
 ) -> PluginDiscoveryResult:
     """
@@ -189,21 +205,35 @@ def discover_plugins(
     `requirements.txt` without importing plugin runtime code.
     """
 
-    builtin_root = builtin_plugins_dir or _default_builtin_plugins_dir()
+    shipped_root = shipped_plugins_dir or _default_shipped_plugins_dir()
     user_root = user_plugins_root_dir or user_plugins_dir()
 
     registry = PluginRegistry()
     issues: list[PluginDiscoveryIssue] = []
 
-    builtin_records, builtin_issues = _discover_plugins_under_root(root=builtin_root, origin=PluginOrigin.SHIPPED)
+    shipped_records, shipped_issues = _discover_plugins_under_root(root=shipped_root, origin=PluginOrigin.SHIPPED)
     user_records, user_issues = _discover_plugins_under_root(root=user_root, origin=PluginOrigin.USER)
-    issues.extend(builtin_issues)
+    issues.extend(shipped_issues)
     issues.extend(user_issues)
 
-    for record in [*builtin_records, *user_records]:
+    for record in [*shipped_records, *user_records]:
         try:
             registry.register(record)
         except Exception as exc:
             issues.append(PluginDiscoveryIssue(plugin_dir=record.location.root_dir, message=str(exc)))
 
-    return PluginDiscoveryResult(registry=registry, issues=tuple(issues))
+    result = PluginDiscoveryResult(registry=registry, issues=tuple(issues))
+    log.info(
+        "Discovered %s plugin(s) (%s issue(s))",
+        len(result.registry.all()),
+        len(result.issues),
+        extra={"operation": "discover_plugins", "phase": "end"},
+    )
+    for issue in result.issues:
+        log.warning(
+            "Plugin discovery issue in %s: %s",
+            issue.plugin_dir,
+            issue.message,
+            extra={"operation": "discover_plugins", "phase": "warning"},
+        )
+    return result

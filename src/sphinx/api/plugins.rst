@@ -1,9 +1,14 @@
 Plugins
 =======
 
-V2 plugin runtime is still being implemented. This section will eventually
-document:
+This section documents the current (metadata-only) plugin discovery surface and
+will expand as the full runtime lands.
 
-- Plugin manifests and feature registration
-- Capability publishing/lookup (shared providers)
-- Command bus request/response dispatch
+.. autosummary::
+   :toctree: generated/plugins
+   :recursive:
+
+   datalens.services.plugins.loader
+   datalens.services.plugins.registry
+   datalens.services.plugins.host
+   datalens.services.plugins.runtime

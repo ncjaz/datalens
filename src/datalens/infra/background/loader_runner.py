@@ -66,25 +66,31 @@ def run_with_loader(
     """
     # Avoid circular imports until LoaderDialog exists
     from datalens.ui.widgets.dialogs.loader_dialog import LoaderDialog
+    from datalens.ui.theme import AppTheme
 
-    dialog_kwargs: dict[str, Any] = {"title": title, "parent": parent}
+    try:
+        from PySide6.QtWidgets import QApplication
+
+        app = QApplication.instance()
+        candidate = getattr(app, "app_theme", None) if app is not None else None
+        theme = candidate if isinstance(candidate, AppTheme) else AppTheme()
+    except Exception:
+        theme = AppTheme()
+
+    keep_open_on_error = False
+    dialog_kwargs: dict[str, Any] = {"title": title, "parent": parent, "theme": theme}
     if dialog_options:
-        dialog_kwargs.update(dialog_options)
+        keep_open_on_error = bool(dialog_options.get("keep_open_on_error", False))
+        dialog_kwargs.update({k: v for k, v in dialog_options.items() if k != "keep_open_on_error"})
 
     dialog = LoaderDialog(**dialog_kwargs)
     worker = LoaderWorker(task)
     # Keep Python references alive for the lifetime of the dialog.
     # (Especially important when parent is None.)
     dialog._loader_worker = worker  # type: ignore[attr-defined]
-    dialog._on_result_callback = on_result  # type: ignore[attr-defined]
-    dialog._on_error_callback = on_error  # type: ignore[attr-defined]
 
     def _cleanup() -> None:
         worker.deleteLater()
-        try:
-            dialog.deleteLater()
-        except Exception:
-            pass
         if parent is None:
             try:
                 from PySide6.QtWidgets import QApplication
@@ -96,8 +102,6 @@ def run_with_loader(
                         dialogs.remove(dialog)
             except Exception:
                 pass
-
-    dialog._cleanup_callback = _cleanup  # type: ignore[attr-defined]
 
     if parent is None:
         try:
@@ -119,19 +123,44 @@ def run_with_loader(
 
     worker.message.connect(dialog.append_message)
 
-    # Optional progress support
-    try:
-        worker.progress.connect(dialog.set_progress)
-    except Exception:
-        pass
+    worker.progress.connect(dialog.set_progress)
 
     # -------------------------------------------------------------- #
     # Success handler
     # -------------------------------------------------------------- #
 
-    # IMPORTANT: connect to QObject slots so the UI work runs on the main thread.
-    worker.finished.connect(dialog._on_worker_finished)
-    worker.failed.connect(dialog._on_worker_failed)
+    def _on_finished(result: object) -> None:
+        try:
+            if callable(on_result):
+                on_result(result)
+        finally:
+            try:
+                dialog.close()
+            finally:
+                _cleanup()
+
+    def _on_failed(exc: Exception) -> None:
+        try:
+            if keep_open_on_error:
+                dialog.show_error(str(exc))
+            if callable(on_error):
+                on_error(exc)
+        finally:
+            if not keep_open_on_error:
+                try:
+                    dialog.close()
+                finally:
+                    _cleanup()
+            else:
+                # The dialog remains open so the user can read/copy the error.
+                # We can still dispose the worker immediately.
+                worker.deleteLater()
+
+    dialog.destroyed.connect(lambda *_: _cleanup())
+
+    # IMPORTANT: connect to Python callables so UI work runs on the main thread.
+    worker.finished.connect(_on_finished)
+    worker.failed.connect(_on_failed)
 
     # -------------------------------------------------------------- #
     # Begin execution

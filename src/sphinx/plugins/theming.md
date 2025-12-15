@@ -15,6 +15,8 @@ This keeps the app consistent while still allowing per-plugin overrides.
 Plugins should *not* import other plugins to share styling. Use `AppTheme`
 provided by the application/plugin context.
 
+For icon styling rules, see `iconography.md`.
+
 ## Global palette (two-tone surfaces)
 
 The application applies the theme to the global Qt palette (V1-style) so common

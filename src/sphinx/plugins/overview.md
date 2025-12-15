@@ -11,6 +11,15 @@ interfaces).
 - Support “provider might be offline” gracefully.
 - Enable shared systems (e.g., live camera feed) to be consumed by multiple tabs.
 
+## Where plugins live
+
+Plugins are discovered recursively from two roots:
+
+- `datalens/plugins/` (shipped plugins, optionally organised into packs/subfolders)
+- `<user data dir>/plugins/` (user-installed plugins, optionally organised into packs/subfolders)
+
+A folder is treated as a plugin root if it contains a `manifest.json`.
+
 ## What a plugin can provide
 
 Common plugin feature kinds:

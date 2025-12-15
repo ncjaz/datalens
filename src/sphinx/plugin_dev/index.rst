@@ -15,4 +15,5 @@ root instead.
    :caption: Plugins
 
    plugins
-   api_reference
+
+See also: :doc:`../api_reference` for the full API reference (shared by app and plugin authors).

@@ -29,9 +29,9 @@ class Toggle(QWidget, StyledMixin):
 
     By default it uses the AppTheme:
 
-      - base (unselected) background: theme.settings.secondary_color
-      - selected background:         theme.settings.primary_color
-      - hover: derived via AppTheme.with_alpha_hex if available
+      - base (unselected) background: theme.secondary_color
+      - selected background:         theme.primary_color
+      - hover: derived via theme opacity settings
 
     You can override colours at runtime via StyledMixin:
 

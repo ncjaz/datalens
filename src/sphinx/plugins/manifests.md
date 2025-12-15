@@ -3,15 +3,36 @@
 Plugins should declare their features declaratively so the runtime can present a
 consistent enable/disable UX and validate compatibility.
 
+V2 treats any folder that contains a `manifest.json` as a plugin root. The
+loader discovers plugin roots recursively under:
+
+- `datalens/plugins/` (shipped plugins, optionally grouped into packs)
+- `<user data dir>/plugins/` (user-installed plugins, optionally grouped into packs)
+
 Minimum manifest fields:
 
 - `id`, `name`, `version`
+- `stage` (one of `dev`, `alpha`, `beta`, `release`)
 - optional `group` (e.g. `Data annotation`, `Models`)
 - optional `core_version_constraint`
 - list of feature entries (kind + entrypoint + display metadata)
 - optional dependency declaration (see below)
 
 As V2 grows, keep manifests stable and evolve via additive fields.
+
+## Stage
+
+`stage` is a UX hint so the welcome screen (and future plugin manager) can
+highlight whether a plugin is experimental or stable.
+
+Recommended values:
+
+- `dev`: internal/unstable, may change frequently
+- `alpha`: early preview
+- `beta`: feature complete but still stabilising
+- `release`: stable
+
+If omitted, the runtime treats the stage as `release`.
 
 ## Grouping
 
@@ -46,7 +67,7 @@ Recommended approach:
 Why derive from `requirements.txt`?
 
 - Keeps dependencies next to the plugin code.
-- Works for both builtin and external plugins.
+- Works for both shipped and external plugins.
 - Avoids duplicating dependency lists in multiple places.
 
 When not to use `requirements.txt`:

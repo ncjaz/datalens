@@ -2,6 +2,7 @@
   "id": "capture",
   "name": "Capture",
   "version": "1.0.0",
+  "stage": "alpha",
   "description": "Capture images/video from connected devices.",
   "group": "Capture",
   "enabled_by_default": false,
@@ -15,4 +16,3 @@
     }
   ]
 }
-

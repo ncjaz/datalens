@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from collections import deque
 
-from PySide6.QtCore import Qt, Slot
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QDialog,
     QFrame,
+    QHBoxLayout,
     QLabel,
     QProgressBar,
     QVBoxLayout,
@@ -14,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from datalens.ui.theme import AppTheme
+from datalens.ui.widgets.core.buttons import ButtonVariant, DatalensButton
 from datalens.ui.widgets.icons.animated.spinner import DualRingSpinner
 
 
@@ -37,7 +39,7 @@ class LoaderDialog(QDialog):
         title_point_size: int = 20,
         subtitle_point_size: int = 11,
         spinner_size: int | None = 60,
-        theme: AppTheme | None = None,
+        theme: AppTheme,
         parent: QWidget | None = None,
         max_messages: int = 4,
     ) -> None:
@@ -46,9 +48,10 @@ class LoaderDialog(QDialog):
             flags |= Qt.WindowStaysOnTopHint
         super().__init__(parent, flags)
 
-        self._theme = theme or self._resolve_theme()
+        self._theme = theme
         self._messages: deque[str] = deque(maxlen=max(1, int(max_messages)))
         self._message_labels: list[QLabel] = []
+        self._error_text: str | None = None
 
         self.setWindowTitle(title)
         if parent is None:
@@ -121,6 +124,22 @@ class LoaderDialog(QDialog):
         self._error.hide()
         card_layout.addWidget(self._error)
 
+        actions_row = QHBoxLayout()
+        actions_row.setContentsMargins(0, 0, 0, 0)
+        actions_row.setSpacing(10)
+        actions_row.addStretch(1)
+        card_layout.addLayout(actions_row)
+
+        self._copy_error = DatalensButton("Copy error", self._theme, ButtonVariant.SECONDARY, self._card)
+        self._copy_error.clicked.connect(self.copy_error_to_clipboard)
+        self._copy_error.hide()
+        actions_row.addWidget(self._copy_error)
+
+        self._close_button = DatalensButton("Close", self._theme, ButtonVariant.CANCEL, self._card)
+        self._close_button.clicked.connect(self.close)
+        self._close_button.hide()
+        actions_row.addWidget(self._close_button)
+
         if hasattr(self._theme, "theme_changed"):
             try:
                 self._theme.theme_changed.connect(self._apply_theme)
@@ -134,20 +153,6 @@ class LoaderDialog(QDialog):
             self.resize(dialog_size, dialog_size)
         else:
             self.resize(420, 420)
-
-    def _resolve_theme(self) -> AppTheme:
-        try:
-            from PySide6.QtWidgets import QApplication
-
-            app = QApplication.instance()
-            if app is not None and hasattr(app, "app_theme"):
-                candidate = getattr(app, "app_theme")
-                if isinstance(candidate, AppTheme):
-                    return candidate
-        except Exception:
-            pass
-
-        return AppTheme()
 
     def _apply_theme(self) -> None:
         t = self._theme
@@ -241,41 +246,28 @@ class LoaderDialog(QDialog):
         self._progress.setValue(percent)
 
     def show_error(self, text: str) -> None:
+        self._error_text = text
         self._error.setText(text)
         self._error.show()
+        self._close_button.show()
+        self._copy_error.show()
 
-    @Slot(object)
-    def _on_worker_finished(self, result: object) -> None:
-        """
-        Internal slot used by ``run_with_loader``.
+    def error_text(self) -> str | None:
+        return self._error_text
 
-        This runs on the UI thread because the runner connects the worker signal
-        to this QObject slot (queued across threads).
-        """
-        self.close()
-        callback = getattr(self, "_on_result_callback", None)
-        if callable(callback):
-            callback(result)
-        cleanup = getattr(self, "_cleanup_callback", None)
-        if callable(cleanup):
-            cleanup()
+    def copy_error_to_clipboard(self) -> None:
+        if not self._error_text:
+            return
+        try:
+            from PySide6.QtWidgets import QApplication
 
-    @Slot(Exception)
-    def _on_worker_failed(self, exc: Exception) -> None:
-        """
-        Internal slot used by ``run_with_loader``.
-
-        This runs on the UI thread because the runner connects the worker signal
-        to this QObject slot (queued across threads).
-        """
-        self.show_error(str(exc))
-        self.close()
-        callback = getattr(self, "_on_error_callback", None)
-        if callable(callback):
-            callback(exc)
-        cleanup = getattr(self, "_cleanup_callback", None)
-        if callable(cleanup):
-            cleanup()
+            app = QApplication.instance()
+            if app is None:
+                return
+            clipboard = app.clipboard()
+            clipboard.setText(self._error_text)
+        except Exception:
+            return
 
     def closeEvent(self, event) -> None:
         try:

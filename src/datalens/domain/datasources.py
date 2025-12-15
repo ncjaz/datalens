@@ -51,4 +51,4 @@ class DataSource:
     kind: DataSourceKind
     capabilities: DataSourceCapability
     plugin_id: Optional[str] = None  # non-None when provided by a plugin
-    config_key: Optional[str] = None  # key for associate_
+    config_key: Optional[str] = None  # key for associated plugin-specific config

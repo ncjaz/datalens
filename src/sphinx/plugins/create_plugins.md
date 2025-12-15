@@ -17,13 +17,27 @@ skeleton via a “Create plugin…” workflow.
 
 ## Suggested plugin folder layout
 
-V2 plugins live under `datalens/services/plugins/<plugin_id>/`:
+V2 plugins live under the `datalens/plugins/` folder.
 
-- `manifest.py` (or future `manifest.json`): metadata used by the loader + welcome UI
-  - `plugin_id`, display name, description, group, kind
+- Shipped plugins (bundled with the app): `datalens/plugins/<plugin_id>/` (or nested under a pack)
+- User-installed plugins: `<user data dir>/plugins/<plugin_id>/` (or nested under a pack)
+
+To support "packs", the loader discovers plugins recursively. Any folder that
+contains a `manifest.json` is treated as a plugin root:
+
+- `datalens/plugins/<pack>/<plugin_id>/manifest.json`
+- `<user data dir>/plugins/<pack>/<plugin_id>/manifest.json`
+
+A plugin root typically contains:
+
+- `manifest.json`: metadata used by the loader + welcome UI
+  - `id`, display name, description, group
+  - `stage` (`dev`/`alpha`/`beta`/`release`)
   - dependencies (`requirements.txt` + optional “manual” requirements)
   - what the plugin provides (tabs, config pages, capabilities, commands)
-- `plugin.py`: runtime entrypoint (the loader instantiates this)
+- `plugin.py`: runtime entrypoint (the host loads this for enabled plugins)
+  - export `PLUGIN` or `get_plugin()`
+  - implement lifecycle hooks (`on_load`, `on_project_opened`, `on_project_closing`)
 - `tabs/` (optional): workspace UI(s)
   - `main_tab.py` (or multiple tabs if the plugin provides more than one)
 - `config/` (optional): Preferences/Settings UI integration
@@ -61,7 +75,7 @@ The host app owns a single Preferences window with a left navigation.
 
 The skeleton generator should create at minimum:
 
-- `manifest.py` with a stable `plugin_id`
+- `manifest.json` with a stable `id`
 - `plugin.py` that registers:
   - a placeholder tab (optional)
   - an empty config page (optional)
@@ -70,4 +84,3 @@ The skeleton generator should create at minimum:
 
 And it should ensure the plugin appears on the welcome screen (via manifest
 discovery), with a placeholder config page in Preferences.
-

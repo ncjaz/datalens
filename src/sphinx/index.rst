@@ -6,21 +6,13 @@ docstrings for the `datalens/src/datalens` package.
 
 .. toctree::
    :maxdepth: 2
-   :caption: Guides
+   :caption: DataLens V2 documentation
 
+   v2_overview
    core_systems
-   services
    plugins/index
-
-.. toctree::
-   :maxdepth: 2
-   :caption: Planning
-
+   services
    documentation_plan
    architecture_audit
-
-.. toctree::
-   :maxdepth: 1
-   :caption: Reference
-
+   plugin_dev/index
    api_reference

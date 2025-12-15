@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping, MutableMapping
 
-from .plugins import PluginId
+from .plugin import PluginId
 from .ui.theme import ThemeOpacitySettings
 from .user_profile import UserProfile
 

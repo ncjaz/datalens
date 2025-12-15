@@ -1,4 +1,4 @@
-# src/datalens/ui/widgets/core/button.py
+# src/datalens/ui/widgets/core/buttons.py
 from __future__ import annotations
 
 from enum import Enum
@@ -272,4 +272,3 @@ class DatalensButton(QPushButton, StyledMixin):
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
-

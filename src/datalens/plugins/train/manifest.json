@@ -2,6 +2,7 @@
   "id": "train",
   "name": "Train",
   "version": "1.0.0",
+  "stage": "alpha",
   "description": "Train models on your datasets.",
   "group": "Models",
   "enabled_by_default": false,
@@ -15,4 +16,3 @@
     }
   ]
 }
-

@@ -5,6 +5,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+from datalens.core.logging import get_logger
 from datalens.domain.settings import AppSettings
 from datalens.domain.plugin import PluginId
 from datalens.domain.user_profile import UserProfile
@@ -83,7 +84,14 @@ def load_app_settings(path: Path) -> AppSettings:
         if not isinstance(data, dict):
             return AppSettings()
         return _settings_from_dict(data)
-    except Exception:
+    except Exception as exc:
+        # Fall back to defaults but keep the failure visible in logs.
+        get_logger(__name__).warning(
+            "Failed to load app settings from %s: %s",
+            path,
+            exc,
+            extra={"operation": "load_app_settings", "phase": "error"},
+        )
         return AppSettings()
 
 

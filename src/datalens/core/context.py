@@ -11,6 +11,11 @@ from datalens.services.config_service import settings_store
 from datalens.services.db.project_db import ProjectDb
 from datalens.ui.theme.app_theme import AppTheme
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from datalens.services.plugins.host import PluginHost
+
 
 class NoActiveProjectError(RuntimeError):
     pass
@@ -43,6 +48,7 @@ class AppContext:
     io: IoWriter
     active_project: ProjectContext | None = None
     project_flush_hooks: list[ProjectFlushHook] = field(default_factory=list)
+    plugin_host: "PluginHost | None" = None
 
     def require_project(self) -> ProjectContext:
         if self.active_project is None:

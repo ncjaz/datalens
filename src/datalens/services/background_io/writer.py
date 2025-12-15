@@ -3,11 +3,14 @@ from __future__ import annotations
 import json
 import queue
 import threading
+import contextvars
 from collections.abc import Callable
 from concurrent.futures import Future
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional, TypeVar
+
+from datalens.core.logging import get_logger
 
 
 T = TypeVar("T")
@@ -17,6 +20,7 @@ T = TypeVar("T")
 class _IoTask:
     fn: Callable[[], Any]
     future: Future[Any]
+    context: contextvars.Context
 
 
 class IoWriter:
@@ -39,15 +43,18 @@ class IoWriter:
         self._thread = threading.Thread(target=self._run, name="IoWriter", daemon=True)
         self._thread.start()
 
+    def _submit_unchecked(self, fn: Callable[[], T]) -> Future[T]:
+        future: Future[T] = Future()
+        self._tasks.put(_IoTask(fn=fn, future=future, context=contextvars.copy_context()))
+        return future
+
     def submit(self, fn: Callable[[], T]) -> Future[T]:
         with self._lock:
             if self._closed:
                 future: Future[T] = Future()
                 future.set_exception(RuntimeError("IoWriter is closed"))
                 return future
-        future: Future[T] = Future()
-        self._tasks.put(_IoTask(fn=fn, future=future))
-        return future
+            return self._submit_unchecked(fn)
 
     def write_text_atomic(self, path: Path, text: str, *, encoding: str = "utf-8") -> Future[None]:
         p = Path(path)
@@ -93,15 +100,37 @@ class IoWriter:
         future: Future[None] = self.submit(barrier)
         return future
 
-    def close(self) -> None:
+    def close(self, *, flush: bool = False, timeout_seconds: float = 2.0) -> None:
+        """
+        Stop the writer thread.
+
+        If `flush=True`, waits (up to `timeout_seconds`) for all queued tasks to
+        complete before stopping.
+        """
+        barrier_future: Future[None] | None = None
         with self._lock:
             if self._closed:
                 return
             self._closed = True
-        self._tasks.put(None)
-        self._thread.join(timeout=2.0)
+            if flush:
+                barrier_future = self._submit_unchecked(lambda: None)
+            self._tasks.put(None)
+
+        timeout = max(0.0, float(timeout_seconds))
+
+        flush_error: Exception | None = None
+        if barrier_future is not None:
+            try:
+                barrier_future.result(timeout=timeout)
+            except Exception as exc:
+                flush_error = exc
+
+        self._thread.join(timeout=timeout)
+        if flush_error is not None:
+            raise flush_error
 
     def _run(self) -> None:
+        log = get_logger(__name__)
         while True:
             task = self._tasks.get()
             if task is None:
@@ -109,9 +138,13 @@ class IoWriter:
             if task.future.cancelled():
                 continue
             try:
-                result = task.fn()
+                result = task.context.run(task.fn)
                 task.future.set_result(result)
             except Exception as exc:
+                log.exception(
+                    "IoWriter task failed",
+                    extra={"operation": "io_task", "phase": "error"},
+                )
                 task.future.set_exception(exc)
 
 

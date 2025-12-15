@@ -13,8 +13,10 @@ background services, data sources, model integrations, and shared capabilities.
    create_plugins
    capabilities
    theming
+   iconography
    settings
    streaming
    commands
+   logging
    writer
    ui_presentation

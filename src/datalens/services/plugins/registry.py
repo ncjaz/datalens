@@ -8,7 +8,7 @@ from datalens.domain.plugin import PluginDefinition, PluginId
 
 
 class PluginOrigin(str, Enum):
-    """Where a plugin came from (builtin vs. user-installed)."""
+    """Where a plugin came from (shipped vs. user-installed)."""
 
     SHIPPED = "shipped"
     USER = "user"

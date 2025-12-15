@@ -59,6 +59,11 @@ class MainWindow(QMainWindow):
         def task(ctx: LoaderContext) -> object:
             ctx.log("Flushing project...")
             close_project_blocking(app_ctx)
+            ctx.log("Stopping background IO...")
+            try:
+                app_ctx.io.close(flush=False, timeout_seconds=5.0)
+            except Exception:
+                pass
             ctx.log("Done.")
             return object()
 
