@@ -10,6 +10,7 @@ docstrings for the `datalens/src/datalens` package.
 
    v2_overview
    core_systems
+   ipc/index
    plugins/index
    services
    documentation_plan

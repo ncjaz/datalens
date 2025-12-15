@@ -9,6 +9,7 @@
    .. autosummary::
    
       dataclass
+      get_logger
       open_connection
       project_db_path
    
@@ -20,6 +21,7 @@
       Callable
       Future
       Path
+      PluginMeta
       ProjectDb
       Protocol
       SqliteProjectDb

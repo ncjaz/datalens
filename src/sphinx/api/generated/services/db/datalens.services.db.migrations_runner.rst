@@ -16,6 +16,7 @@
       has_table
       inspect_core_db
       list_user_tables
+      migrate_core_schema
       project_meta_path
       read_app_meta
       write_project_meta_json
@@ -27,6 +28,7 @@
       Any
       AppMeta
       CoreDbInspection
+      CoreOpenDecision
       Path
    
    .. rubric:: Exceptions

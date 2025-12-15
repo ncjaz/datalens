@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+from typing import Any
+
+from PySide6.QtCore import QByteArray
 from PySide6.QtCore import Qt
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QLabel, QMainWindow, QMessageBox, QWidget
 
+from datalens.domain.plugin import PluginId
+from datalens.infra.persistence_queue import PersistenceQueue
 from datalens.ui.menus.menubar import DatalensMenuBar
 
 
@@ -24,8 +29,101 @@ class MainWindow(QMainWindow):
         label.setAlignment(Qt.AlignCenter)
         self.setCentralWidget(label)
 
+        self._ui_state_plugin_id = PluginId("core.ui")
+        self._ui_state_key = "main_window_state"
+        self._ui_state_last_snapshot: dict[str, object] | None = None
+        self._ui_state_queue = PersistenceQueue(
+            parent=self,
+            name="MainWindowUiState",
+            debounce_ms=250,
+            max_pending_jobs=1,
+            use_worker=False,  # save stage enqueues onto ProjectDb (already background)
+            merge_func=self._merge_ui_state_changes,
+            snapshot_func=self._snapshot_ui_state,
+            save_func=self._save_ui_state,
+        )
+        self._restore_ui_state_from_project_db()
+
     def _on_new_project_requested(self) -> None:
         QMessageBox.information(self, "New Project", "New Project is not implemented yet.")
+
+    def moveEvent(self, event) -> None:
+        super().moveEvent(event)
+        self._ui_state_queue.enqueue(keys={"move"})
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._ui_state_queue.enqueue(keys={"resize"})
+
+    def _merge_ui_state_changes(self, keys: set[object], full_refresh: bool, payloads: list[Any]) -> bool:
+        # TODO(v2): This merge callback is intentionally minimal for window UI-state persistence.
+        # Current behavior: treat any UI event as "changed" and let `_snapshot_ui_state` dedupe.
+        # Future: if we persist additional per-project UI state (tabs, panes, etc.), implement
+        # a real in-memory merge/cache update here to avoid unnecessary snapshots.
+        return bool(keys) or full_refresh or bool(payloads)
+
+    def _snapshot_ui_state(self) -> dict[str, object] | None:
+        app_ctx = self._get_app_context()
+        if app_ctx is None or getattr(app_ctx, "active_project", None) is None:
+            return None
+
+        snapshot = {
+            "geometry_b64": bytes(self.saveGeometry().toBase64()).decode("ascii"),
+            "state_b64": bytes(self.saveState().toBase64()).decode("ascii"),
+        }
+        if snapshot == self._ui_state_last_snapshot:
+            return None
+        self._ui_state_last_snapshot = snapshot
+        return snapshot
+
+    def _save_ui_state(self, payload: dict[str, object]) -> bool:
+        app_ctx = self._get_app_context()
+        project = getattr(app_ctx, "active_project", None) if app_ctx is not None else None
+        if project is None:
+            return False
+        project.project_db.kv_set(self._ui_state_plugin_id, self._ui_state_key, payload)
+        return True
+
+    def _restore_ui_state_from_project_db(self) -> None:
+        app_ctx = self._get_app_context()
+        project = getattr(app_ctx, "active_project", None) if app_ctx is not None else None
+        if project is None:
+            return
+
+        future = project.project_db.kv_get(self._ui_state_plugin_id, self._ui_state_key)
+
+        def apply(value: object | None) -> None:
+            if not isinstance(value, dict):
+                return
+            geometry_b64 = value.get("geometry_b64")
+            if isinstance(geometry_b64, str) and geometry_b64:
+                try:
+                    self.restoreGeometry(QByteArray.fromBase64(geometry_b64.encode("ascii")))
+                except Exception:
+                    pass
+
+            state_b64 = value.get("state_b64")
+            if isinstance(state_b64, str) and state_b64:
+                try:
+                    self.restoreState(QByteArray.fromBase64(state_b64.encode("ascii")))
+                except Exception:
+                    pass
+
+        def on_done(fut) -> None:
+            try:
+                value = fut.result()
+            except Exception:
+                return
+            QTimer.singleShot(0, lambda: apply(value))
+
+        future.add_done_callback(on_done)
+
+    def _get_app_context(self) -> object | None:
+        try:
+            app = QApplication.instance()
+            return getattr(app, "app_context", None) if app is not None else None
+        except Exception:
+            return None
 
     def closeEvent(self, event) -> None:
         """
@@ -37,6 +135,12 @@ class MainWindow(QMainWindow):
         if self._close_in_progress:
             super().closeEvent(event)
             return
+
+        # Ensure the last UI-state snapshot is submitted before the DB flush.
+        try:
+            self._ui_state_queue.flush()
+        except Exception:
+            pass
 
         try:
             app = QApplication.instance()

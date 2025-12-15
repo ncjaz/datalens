@@ -12,15 +12,13 @@ persists (e.g. annotations, indexes, derived project metadata).
 
 from __future__ import annotations
 
+import logging
 from collections import deque
 from collections.abc import Iterable, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any, Callable, Deque, Hashable, Optional
 
 from PySide6.QtCore import QObject, QTimer, Signal
-
-from datalens.core.logging import get_logger
-
 
 MergeCallback = Callable[[set[Hashable], bool, Sequence[Any]], bool]
 SnapshotCallback = Callable[[], Any]
@@ -63,7 +61,7 @@ class PersistenceQueue(QObject):
         drop_oldest_pending: bool = True,
     ) -> None:
         super().__init__(parent)
-        self._log = get_logger(__name__)
+        self._log = logging.getLogger(__name__)
         self._name = str(name)
         self._merge_func = merge_func
         self._snapshot_func = snapshot_func
@@ -186,10 +184,7 @@ class PersistenceQueue(QObject):
         try:
             should_snapshot = self._merge_func(keys, full_refresh, payloads)
         except Exception:
-            self._log.exception(
-                "PersistenceQueue merge callback failed",
-                extra={"operation": "persistence_queue", "phase": "error", "name": self._name},
-            )
+            self._log.exception("PersistenceQueue merge callback failed (%s)", self._name)
             return
 
         if not should_snapshot:
@@ -198,10 +193,7 @@ class PersistenceQueue(QObject):
         try:
             job_payload = self._snapshot_func()
         except Exception:
-            self._log.exception(
-                "PersistenceQueue snapshot callback failed",
-                extra={"operation": "persistence_queue", "phase": "error", "name": self._name},
-            )
+            self._log.exception("PersistenceQueue snapshot callback failed (%s)", self._name)
             return
 
         if job_payload is None:
@@ -240,10 +232,7 @@ class PersistenceQueue(QObject):
             success = True if result is None else bool(result)
             return success, payload, None
         except Exception as exc:  # pragma: no cover - worker thread logging
-            self._log.exception(
-                "PersistenceQueue worker failed while saving",
-                extra={"operation": "persistence_queue", "phase": "error", "name": self._name},
-            )
+            self._log.exception("PersistenceQueue worker failed while saving %s", self._name)
             return False, payload, exc
 
     def _handle_future_completion(self, future: Future) -> None:
@@ -253,10 +242,7 @@ class PersistenceQueue(QObject):
         try:
             success, payload, error = future.result()
         except Exception as exc:  # pragma: no cover - defensive
-            self._log.exception(
-                "PersistenceQueue future raised unexpectedly",
-                extra={"operation": "persistence_queue", "phase": "error", "name": self._name},
-            )
+            self._log.exception("PersistenceQueue future raised unexpectedly (%s)", self._name)
             success, payload, error = False, None, exc
         self._emit_completion(bool(success), payload, error)
         self._try_start_job()
@@ -273,14 +259,10 @@ class PersistenceQueue(QObject):
         while len(self._job_queue) > self._max_pending_jobs:
             dropped = self._job_queue.popleft() if self._drop_oldest_pending else self._job_queue.pop()
             self._log.debug(
-                "Dropped pending PersistenceQueue job",
-                extra={
-                    "operation": "persistence_queue",
-                    "phase": "debug",
-                    "name": self._name,
-                    "dropped": type(dropped).__name__,
-                    "max_pending_jobs": self._max_pending_jobs,
-                },
+                "Dropped pending PersistenceQueue job (%s, max_pending_jobs=%s): %s",
+                self._name,
+                self._max_pending_jobs,
+                type(dropped).__name__,
             )
 
     def _drain_jobs(self) -> None:
@@ -298,4 +280,3 @@ class PersistenceQueue(QObject):
                 payload = self._job_queue.popleft()
                 success, payload, error = self._run_job(payload)
                 self._emit_completion(success, payload, error)
-

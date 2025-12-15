@@ -12,7 +12,7 @@ from .projects import ProjectId, ProjectSummary
 from .media import MediaId, MediaItemSummary, MediaType
 from .annotations.core import AnnotationId, AnnotationSet
 from .models.base import ModelFamilyId, ModelVariantId, ModelCapability
-from .plugins import PluginId, PluginGroupId, PluginDefinition, PluginFeature, PluginKind
+from .plugin import PluginId, PluginGroupId, PluginDefinition, PluginFeature, PluginKind
 from .datasources import DataSourceId, DataSource, DataSourceKind
 from .user_profile import UserProfile
 from .ui.icons import IconRole, IconDefinition

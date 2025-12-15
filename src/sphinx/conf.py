@@ -61,15 +61,18 @@ qtgui = _make_qt_stub_module("PySide6.QtGui", ["QColor", "QIcon", "QPainter", "Q
 qtwidgets = _make_qt_stub_module(
     "PySide6.QtWidgets", ["QApplication", "QWidget", "QMainWindow", "QDialog"]
 )
+qtnetwork = _make_qt_stub_module("PySide6.QtNetwork", ["QLocalServer", "QLocalSocket"])
 
 pyside6 = types.ModuleType("PySide6")
 pyside6.QtCore = qtcore
 pyside6.QtGui = qtgui
 pyside6.QtWidgets = qtwidgets
+pyside6.QtNetwork = qtnetwork
 sys.modules["PySide6"] = pyside6
 sys.modules["PySide6.QtCore"] = qtcore
 sys.modules["PySide6.QtGui"] = qtgui
 sys.modules["PySide6.QtWidgets"] = qtwidgets
+sys.modules["PySide6.QtNetwork"] = qtnetwork
 
 shiboken6 = types.ModuleType("shiboken6")
 shiboken6.isValid = lambda obj=None: True

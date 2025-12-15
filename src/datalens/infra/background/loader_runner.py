@@ -22,10 +22,75 @@ plugin authors, who only need to supply a task function and optional callbacks.
 from __future__ import annotations
 
 from typing import Any, Callable, Optional
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QObject, QTimer, Slot
 from PySide6.QtWidgets import QWidget
 
 from datalens.infra.background.loader_worker import LoaderWorker
+
+
+class _ResultRouter(QObject):
+    """
+    Ensure loader completion handlers run on the UI thread.
+
+    Qt signals emitted from `LoaderWorker` come from a background thread. If we
+    connect them directly to a plain Python callable, PySide may invoke the
+    callable on the emitter thread, which is unsafe for UI work. By routing via
+    a QObject living on the UI thread, AutoConnection becomes a queued
+    connection.
+    """
+
+    def __init__(
+        self,
+        *,
+        dialog: "QObject",
+        cleanup: Callable[[], None],
+        on_result: Callable[[Any], None] | None,
+        on_error: Callable[[Exception], None] | None,
+        keep_open_on_error: bool,
+    ) -> None:
+        super().__init__(dialog)
+        self._dialog = dialog
+        self._cleanup = cleanup
+        self._on_result = on_result
+        self._on_error = on_error
+        self._keep_open_on_error = keep_open_on_error
+
+    @Slot(object)
+    def on_finished(self, result: object) -> None:
+        # Close the loader *before* invoking `on_result`. Many callers show a
+        # modal dialog (e.g. WelcomeWindow.exec()), which would otherwise block
+        # and prevent the loader from closing.
+        try:
+            try:
+                hide = getattr(self._dialog, "hide", None)
+                if callable(hide):
+                    hide()
+            except Exception:
+                pass
+            self._dialog.close()
+        finally:
+            self._cleanup()
+        if callable(self._on_result):
+            QTimer.singleShot(0, lambda: self._on_result(result))
+
+    @Slot(Exception)
+    def on_failed(self, exc: Exception) -> None:
+        try:
+            if self._keep_open_on_error:
+                try:
+                    show_error = getattr(self._dialog, "show_error", None)
+                    if callable(show_error):
+                        show_error(str(exc))
+                except Exception:
+                    pass
+            if callable(self._on_error):
+                self._on_error(exc)
+        finally:
+            if not self._keep_open_on_error:
+                try:
+                    self._dialog.close()
+                finally:
+                    self._cleanup()
 
 
 def run_with_loader(
@@ -89,8 +154,22 @@ def run_with_loader(
     # (Especially important when parent is None.)
     dialog._loader_worker = worker  # type: ignore[attr-defined]
 
+    cleaned_up = False
+
     def _cleanup() -> None:
-        worker.deleteLater()
+        nonlocal cleaned_up
+        if cleaned_up:
+            return
+        cleaned_up = True
+        try:
+            worker.deleteLater()
+        except RuntimeError:
+            # LoaderWorker may already be deleted (e.g. dialog destroyed first).
+            pass
+        try:
+            dialog._loader_worker = None  # type: ignore[attr-defined]
+        except Exception:
+            pass
         if parent is None:
             try:
                 from PySide6.QtWidgets import QApplication
@@ -129,38 +208,19 @@ def run_with_loader(
     # Success handler
     # -------------------------------------------------------------- #
 
-    def _on_finished(result: object) -> None:
-        try:
-            if callable(on_result):
-                on_result(result)
-        finally:
-            try:
-                dialog.close()
-            finally:
-                _cleanup()
-
-    def _on_failed(exc: Exception) -> None:
-        try:
-            if keep_open_on_error:
-                dialog.show_error(str(exc))
-            if callable(on_error):
-                on_error(exc)
-        finally:
-            if not keep_open_on_error:
-                try:
-                    dialog.close()
-                finally:
-                    _cleanup()
-            else:
-                # The dialog remains open so the user can read/copy the error.
-                # We can still dispose the worker immediately.
-                worker.deleteLater()
-
     dialog.destroyed.connect(lambda *_: _cleanup())
 
-    # IMPORTANT: connect to Python callables so UI work runs on the main thread.
-    worker.finished.connect(_on_finished)
-    worker.failed.connect(_on_failed)
+    router = _ResultRouter(
+        dialog=dialog,
+        cleanup=_cleanup,
+        on_result=on_result,
+        on_error=on_error,
+        keep_open_on_error=keep_open_on_error,
+    )
+    dialog._loader_router = router  # type: ignore[attr-defined]
+
+    worker.finished.connect(router.on_finished)
+    worker.failed.connect(router.on_failed)
 
     # -------------------------------------------------------------- #
     # Begin execution

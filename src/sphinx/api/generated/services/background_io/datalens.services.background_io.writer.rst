@@ -12,6 +12,7 @@
       _atomic_write_text
       dataclass
       default_io_writer
+      get_logger
    
    .. rubric:: Classes
 

@@ -1,3 +1,8 @@
-from datalens.infra.persistence_queue import PersistenceQueue
+"""
+Infrastructure package (V2).
 
-__all__ = ["PersistenceQueue"]
+Keep this module free of imports that would pull in optional/Qt-dependent code
+or create import cycles during early startup (e.g. logging initialisation).
+"""
+
+__all__: list[str] = []

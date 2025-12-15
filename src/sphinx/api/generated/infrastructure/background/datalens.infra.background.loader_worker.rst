@@ -4,6 +4,12 @@
 .. automodule:: datalens.infra.background.loader_worker
 
    
+   .. rubric:: Functions
+
+   .. autosummary::
+   
+      get_logger
+   
    .. rubric:: Classes
 
    .. autosummary::

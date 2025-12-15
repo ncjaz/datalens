@@ -19,4 +19,5 @@
       PluginDefinition
       PluginFeature
       PluginKind
+      PluginStage
    
