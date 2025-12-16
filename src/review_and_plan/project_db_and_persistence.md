@@ -314,14 +314,13 @@ the robustness contract so we can close the gaps intentionally.
 
 - [x] Project open must be staged: `SqliteProjectDb` now initializes asynchronously and exposes `ready()`, but any project-open helper that blocks (e.g. `ProjectService.open_project`) must never be called on the UI thread.
 - [x] Core schema open is now inspect-first: the project open flow inspects the DB read-only and fails fast on unknown/foreign databases and newer core schema versions. Older core schema versions can now be migrated (currently v0/v1 -> v2).
-- [ ] Close semantics are largely in place: `ProjectDb.flush()` / `IoWriter.flush()` exist, both executors support `close(flush=True)`, and the app close path uses a background shutdown stage that flushes, then closes resources. Remaining gap: decide if timeouts should surface as user-visible errors vs best-effort warnings.
-- [ ] Derived meta JSON timing is not ideal: generating/writing `project_meta.json` should be queued after "project ready" and must not delay project open.
+- [x] Close semantics are largely in place: `ProjectDb.flush()` / `IoWriter.flush()` exist, both executors support `close(flush=True)`, and the app close path uses a background shutdown stage that flushes, then closes resources. Failure UX is now explicit (retry/cancel/force-close).
+- [x] Derived meta JSON timing is now non-blocking: generating/writing `project_meta.json` is scheduled as best-effort after the project is attached/ready (never on the project-open critical path).
+- [ ] Core-vs-plugin schema ownership enforcement is improved but not complete: core migrations now run via a core-only DB executor method that rejects non-core table mutations; remaining work is to tighten guarantees across all core call sites and document/standardise the policy.
 
 Hardening TODOs (next):
 
-- [ ] Decide and implement timeout/failure UX for project close flush (warn user vs block-close vs retry).
-- [ ] Ensure `project_meta.json` generation is queued strictly after "project ready" and never delays project open.
-- [ ] Improve enforcement of core-vs-plugin schema ownership boundaries (beyond convention + `PluginDb` row scoping).
+- [ ] Improve enforcement of core-vs-plugin schema ownership boundaries (beyond convention + `PluginDb` row scoping + core-only migration guard).
 
 ## Project open stages (inspect-first, plugin-safe)
 

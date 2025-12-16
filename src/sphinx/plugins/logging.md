@@ -18,6 +18,10 @@ Logs are written under the per-user DataLens data directory:
 
 The file is rotated by size (see `datalens.core.logging.init_logging`).
 
+You can disable file logging (stderr/console only) when launching the app:
+
+`python -m datalens.app --no-log-file`
+
 ## Why the logging module lives in `datalens.core`
 
 Logging is an infrastructure concern, but in V2 we treat `datalens.core` as the
@@ -121,7 +125,7 @@ with bind_log_context(subsystem="streaming", stream_key="capture.rgb"):
     log.info("Publishing frame")
 ```
 
-## Donâ€™t log high-rate data
+## Don't log high-rate data
 
 Avoid logging per-frame/per-sample information in tight loops (video, streaming, model inference).
 Prefer periodic summaries and counters.

@@ -32,7 +32,7 @@ class ThemeOpacitySettings:
 
     # Hover "tint" alpha. Most widgets use this as a low-opacity overlay of the
     # *selected/accent* colour while hovering inactive surfaces (matching V1).
-    hover_fill: float = 0.30
+    hover_fill: float = 0.50
 
     # Selected/active "fill" (e.g. selection cards: tinted bg).
     selected_fill: float = 0.25

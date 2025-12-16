@@ -158,32 +158,64 @@ class MainWindow(QMainWindow):
 
         from datalens.infra.background.loader_context import LoaderContext
         from datalens.infra.background.loader_runner import run_with_loader
-        from datalens.services.project_service import close_project_blocking
+        from datalens.services.project_service import close_project, close_project_blocking
 
-        def task(ctx: LoaderContext) -> object:
-            ctx.log("Flushing project...")
-            close_project_blocking(app_ctx)
-            ctx.log("Stopping background IO...")
-            try:
-                app_ctx.io.close(flush=False, timeout_seconds=5.0)
-            except Exception:
-                pass
-            ctx.log("Done.")
-            return object()
+        def run_close(*, force: bool) -> None:
+            def task(ctx: LoaderContext) -> object:
+                if force:
+                    ctx.log("Force closing project (best-effort)...")
+                    close_project(app_ctx)
+                else:
+                    ctx.log("Flushing project...")
+                    close_project_blocking(app_ctx, timeout_seconds=30.0)
 
-        def on_done(_: object) -> None:
-            self._close_in_progress = False
-            QTimer.singleShot(0, self.close)
+                ctx.log("Stopping background IO...")
+                try:
+                    app_ctx.io.close(flush=False, timeout_seconds=5.0)
+                except Exception:
+                    pass
+                ctx.log("Done.")
+                return object()
 
-        def on_error(exc: Exception) -> None:
-            self._close_in_progress = False
-            QMessageBox.critical(self, "Failed to Close Project", str(exc))
+            def on_done(_: object) -> None:
+                self._close_in_progress = False
+                QTimer.singleShot(0, self.close)
 
-        run_with_loader(
-            parent=self,
-            title="Closing Project...",
-            task=task,
-            on_result=on_done,
-            on_error=on_error,
-            dialog_options={"spinner_size": 80, "title_point_size": 18, "subtitle_point_size": 12},
-        )
+            def on_error(exc: Exception) -> None:
+                self._close_in_progress = False
+
+                dialog = QMessageBox(self)
+                dialog.setIcon(QMessageBox.Critical)
+                dialog.setWindowTitle("Failed to Close Project")
+                dialog.setText(str(exc))
+                dialog.setInformativeText(
+                    "Retry to attempt a safe close again, cancel to keep the project open, "
+                    "or force close (may lose unsaved work)."
+                )
+                retry = dialog.addButton("Retry", QMessageBox.AcceptRole)
+                cancel = dialog.addButton("Cancel", QMessageBox.RejectRole)
+                force_btn = dialog.addButton("Force Close", QMessageBox.DestructiveRole)
+                dialog.setDefaultButton(retry)
+                dialog.exec()
+
+                clicked = dialog.clickedButton()
+                if clicked is retry:
+                    self._close_in_progress = True
+                    run_close(force=False)
+                    return
+                if clicked is force_btn:
+                    self._close_in_progress = True
+                    run_close(force=True)
+                    return
+                # Cancel: keep the window open.
+
+            run_with_loader(
+                parent=self,
+                title="Closing Project...",
+                task=task,
+                on_result=on_done,
+                on_error=on_error,
+                dialog_options={"spinner_size": 80, "title_point_size": 18, "subtitle_point_size": 12},
+            )
+
+        run_close(force=False)

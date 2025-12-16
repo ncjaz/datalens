@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import queue
+import re
 import sqlite3
 import threading
 import contextvars
@@ -34,6 +35,16 @@ class ProjectDb(Protocol):
 
     def execute_read(self, fn: Callable[[sqlite3.Connection], T]) -> Future[T]:
         """Run `fn(conn)` on the DB executor and return a Future for its result."""
+
+    def execute_core_write(self, fn: Callable[[sqlite3.Connection], T]) -> Future[T]:
+        """
+        Run a core-only write callable.
+
+        Core-only writes must not touch plugin-owned tables (beyond core-owned metadata).
+        """
+
+    def execute_core_read(self, fn: Callable[[sqlite3.Connection], T]) -> Future[T]:
+        """Run a core-only read callable (symmetry helper)."""
 
     def kv_get(self, plugin_id: PluginId, key: str) -> Future[object | None]:
         """Return the JSON value for (plugin_id, key) or None if missing."""
@@ -70,6 +81,90 @@ class _DbTask:
     fn: Callable[[sqlite3.Connection], Any]
     future: Future[Any]
     context: contextvars.Context
+    core_only: bool = False
+
+
+class CoreDbOwnershipError(RuntimeError):
+    pass
+
+
+_CORE_TABLES: set[str] = {"app_meta", "plugin_kv", "plugin_meta"}
+_SQL_WS = re.compile(r"\s+")
+_SQL_QUOTED = re.compile(r'^[`"\[]?(.*?)[`"\]]?$')
+
+
+def _normalize_ident(ident: str) -> str:
+    ident = _SQL_WS.sub(" ", ident.strip())
+    m = _SQL_QUOTED.match(ident)
+    if m:
+        ident = m.group(1)
+    if "." in ident:
+        ident = ident.split(".")[-1]
+    return ident.strip().strip('"').strip("`").strip("[").strip("]").lower()
+
+
+def _extract_table_after(prefix_pattern: str, sql_upper: str) -> str | None:
+    m = re.search(prefix_pattern, sql_upper)
+    if not m:
+        return None
+    return m.group(1)
+
+
+def _assert_core_only_sql(statement: str) -> None:
+    """
+    Best-effort guard: refuse statements that would mutate non-core tables.
+
+    This is not a SQL parser. It is intentionally conservative and designed to
+    catch accidental core mutations of plugin-owned tables during migrations and
+    other core-managed phases.
+    """
+    s = statement.strip()
+    if not s:
+        return
+
+    s_upper = s.upper()
+    if s_upper.startswith(("PRAGMA ", "BEGIN", "COMMIT", "ROLLBACK", "SAVEPOINT", "RELEASE")):
+        return
+
+    # Disallow destructive operations in core-only mode (core migrations should be additive).
+    if s_upper.startswith("DROP "):
+        raise CoreDbOwnershipError(f"Core-only DB operation attempted: {s.strip()}")
+
+    candidates: list[str] = []
+
+    table = _extract_table_after(r"\bINSERT\s+INTO\s+([^\s(]+)", s_upper)
+    if table:
+        candidates.append(table)
+
+    table = _extract_table_after(r"\bUPDATE\s+([^\s]+)", s_upper)
+    if table:
+        candidates.append(table)
+
+    table = _extract_table_after(r"\bDELETE\s+FROM\s+([^\s]+)", s_upper)
+    if table:
+        candidates.append(table)
+
+    table = _extract_table_after(r"\bALTER\s+TABLE\s+([^\s]+)", s_upper)
+    if table:
+        candidates.append(table)
+
+    table = _extract_table_after(r"\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([^\s(]+)", s_upper)
+    if table:
+        candidates.append(table)
+
+    if "CREATE INDEX" in s_upper or "CREATE UNIQUE INDEX" in s_upper:
+        table = _extract_table_after(r"\bON\s+([^\s(]+)", s_upper)
+        if table:
+            candidates.append(table)
+
+    for raw in candidates:
+        ident = _normalize_ident(raw)
+        if ident.startswith("sqlite_"):
+            continue
+        if ident not in _CORE_TABLES:
+            raise CoreDbOwnershipError(
+                f"Core-only DB operation attempted to modify non-core table {ident!r}: {s.strip()}"
+            )
 
 
 class SqliteProjectDb(ProjectDb):
@@ -122,10 +217,16 @@ class SqliteProjectDb(ProjectDb):
         return self._ready
 
     def execute_write(self, fn: Callable[[sqlite3.Connection], T]) -> Future[T]:
-        return self._submit(fn)
+        return self._submit(fn, core_only=False)
 
     def execute_read(self, fn: Callable[[sqlite3.Connection], T]) -> Future[T]:
-        return self._submit(fn)
+        return self._submit(fn, core_only=False)
+
+    def execute_core_write(self, fn: Callable[[sqlite3.Connection], T]) -> Future[T]:
+        return self._submit(fn, core_only=True)
+
+    def execute_core_read(self, fn: Callable[[sqlite3.Connection], T]) -> Future[T]:
+        return self._submit(fn, core_only=True)
 
     def kv_get(self, plugin_id: PluginId, key: str) -> Future[object | None]:
         plugin = str(plugin_id)
@@ -273,14 +374,21 @@ class SqliteProjectDb(ProjectDb):
     # Internals
     # ------------------------------------------------------------------
 
-    def _submit(self, fn: Callable[[sqlite3.Connection], T]) -> Future[T]:
+    def _submit(self, fn: Callable[[sqlite3.Connection], T], *, core_only: bool) -> Future[T]:
         with self._lock:
             if self._closed:
                 future: Future[T] = Future()
                 future.set_exception(RuntimeError("ProjectDb is closed"))
                 return future
             future = Future()
-            self._tasks.put(_DbTask(fn=fn, future=future, context=contextvars.copy_context()))
+            self._tasks.put(
+                _DbTask(
+                    fn=fn,
+                    future=future,
+                    context=contextvars.copy_context(),
+                    core_only=bool(core_only),
+                )
+            )
             return future  # type: ignore[return-value]
 
     def _run(self) -> None:
@@ -312,6 +420,8 @@ class SqliteProjectDb(ProjectDb):
                 if task.future.cancelled():
                     continue
                 try:
+                    if task.core_only:
+                        conn.set_trace_callback(_assert_core_only_sql)
                     result = task.context.run(task.fn, conn)
                     conn.commit()
                     task.future.set_result(result)
@@ -322,6 +432,12 @@ class SqliteProjectDb(ProjectDb):
                         extra={"operation": "db_task", "phase": "error"},
                     )
                     task.future.set_exception(exc)
+                finally:
+                    if task.core_only:
+                        try:
+                            conn.set_trace_callback(None)
+                        except Exception:
+                            pass
         finally:
             try:
                 conn.close()

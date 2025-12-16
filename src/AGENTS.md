@@ -27,7 +27,7 @@ Use this structure when deciding where new files belong:
 - `datalens/plugins/` – **shipped plugins**
   - Discovered via `manifest.json`; may be grouped into subfolders (“packs”).
 - `sphinx/` – **V2 documentation site** (Sphinx + MyST)
-- `review_and_plan/` – **V2 planning/specs** (design notes, implementation plans)
+- `review_and_plan/` - **V2 planning/specs** (design notes, implementation plans)
 
 ## UI/UX rules
 
@@ -61,6 +61,23 @@ Example (already implemented):
 - **Shutdown/flush**: services/plugins that manage pipelines must register a project flush hook:
   - `AppContext.register_project_flush_hook(...)`
 
+## Prefer Qt-native primitives for UI state
+
+When Qt/PySide provides a built-in solution, prefer it over inventing a custom mechanism.
+
+In particular:
+
+- **UI geometry/layout persistence**: prefer `QSettings` with `saveGeometry()` / `restoreGeometry()` and
+  `saveState()` / `restoreState()` (splitters, docks, dialogs, tool windows).
+- **Semantic user preferences** (feature toggles, recent projects, enabled plugins, user profile):
+  keep these in `settings.json` (`datalens.domain.settings.AppSettings`) using `SettingsStore` /
+  `DebouncedSettingsWriter` (and never block the UI thread on file IO).
+
+Plugin UI guidance:
+
+- Persist UI layout under a key namespaced by plugin id (e.g. `plugins/<plugin_id>/...`) so plugins can be
+  enabled/disabled without collisions.
+
 ## Plugins (agreement/contract)
 
 - **Discovery is metadata-only**: do not import plugin runtime code just to list plugins.
@@ -92,7 +109,22 @@ For any new system (DB, streaming, plugin runtime, background pipelines):
   - **Correctness criteria** (what must be true)
   - **Failure modes** (what happens on errors)
   - **Performance constraints** (UI thread, throughput)
-  - **Validation steps** (how we’ll confirm it works)
+  - **Validation steps** (how we'll confirm it works)
+
+## Planned: Event hub
+
+The EventHub plan (not implemented yet) lives at:
+- `datalens/src/review_and_plan/event_hub.md`
+
+Design intent:
+- `publish()` is non-blocking (enqueue + return)
+- subscriber callbacks are delivered queued on the UI thread by default
+- heavy work must be explicitly offloaded to background systems (threadpool/loader/IoWriter) and results marshaled back to UI
+
+## Planned: Project service hardening
+
+Project lifecycle (open/close/switch) hardening plan lives at:
+- `datalens/src/review_and_plan/project_service.md`
 
 Kiro references:
 - https://kiro.dev/docs/specs/concepts/
@@ -109,4 +141,3 @@ Kiro references:
   - existing V1 behavior (reference)
   - existing V2 patterns
   - upstream docs (Qt, Python, Sphinx, etc.)
-

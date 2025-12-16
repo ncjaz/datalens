@@ -50,10 +50,43 @@ class AppContext:
     project_flush_hooks: list[ProjectFlushHook] = field(default_factory=list)
     plugin_host: "PluginHost | None" = None
 
+    @property
+    def has_project(self) -> bool:
+        """True when a project is currently open."""
+        return self.active_project is not None
+
+    @property
+    def project(self) -> ProjectContext | None:
+        """
+        Convenience alias for `active_project`.
+
+        Prefer using this (or `has_project`) for feature gating instead of
+        calling `require_project()` and catching exceptions.
+        """
+        return self.active_project
+
+    @property
+    def project_root(self) -> Path | None:
+        """Project root for the active project, or None if no project is open."""
+        project = self.active_project
+        return project.project_root if project is not None else None
+
     def require_project(self) -> ProjectContext:
         if self.active_project is None:
             raise NoActiveProjectError("No project is currently open")
         return self.active_project
+
+    def with_project(self, fn: Callable[[ProjectContext], Any]) -> Any | None:
+        """
+        Call `fn(project)` if a project is open, otherwise return None.
+
+        This is a small convenience for gating logic. Keep `fn` lightweight;
+        do not block the UI thread within `fn`.
+        """
+        project = self.active_project
+        if project is None:
+            return None
+        return fn(project)
 
     def register_project_flush_hook(self, hook: ProjectFlushHook) -> None:
         """

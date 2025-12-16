@@ -20,30 +20,36 @@ class DatalensApplication(QApplication):
     """
 
     _DEFAULT_SLOW_EVENT_THRESHOLD_MS = 75.0
-    _SLOW_EVENT_NOTICE_INTERVAL_S = 2.0
     _SLOW_EVENT_IGNORE_TYPES = {
         QEvent.Type.Timer,
     }
 
-    def __init__(self, argv: list[str], *, theme: AppTheme | None = None) -> None:
+    def __init__(
+        self,
+        argv: list[str],
+        *,
+        theme: AppTheme | None = None,
+        slow_event_threshold_ms: float | None = None,
+    ) -> None:
         super().__init__(argv)
 
-        # Initialise slow-event profiling state *before* applying theme/style,
-        # because Qt may deliver events during `apply_to(...)`.
         self._slow_event_log = get_logger("datalens.ui.events")
-        self._slow_event_threshold_ms = self._resolve_slow_event_threshold()
-        self._slow_event_last_notice: dict[tuple[str, str], float] = {}
-
-        self.app_theme: AppTheme = theme or AppTheme()
-        self.app_theme.apply_to(self)
-        self.app_theme.theme_changed.connect(lambda: self.app_theme.apply_to(self))
-        self.app_context: AppContext = create_app_context(self.app_theme)
+        self._slow_event_threshold_ms = (
+            float(slow_event_threshold_ms)
+            if slow_event_threshold_ms is not None
+            else self._resolve_slow_event_threshold()
+        )
         if self._slow_event_threshold_ms > 0:
             self._slow_event_log.info(
                 "Slow event logging enabled (threshold=%.1f ms)",
                 self._slow_event_threshold_ms,
                 extra={"operation": "qt_events", "phase": "init"},
             )
+
+        self.app_theme: AppTheme = theme or AppTheme()
+        self.app_theme.apply_to(self)
+        self.app_theme.theme_changed.connect(lambda: self.app_theme.apply_to(self))
+        self.app_context: AppContext = create_app_context(self.app_theme)
 
     def _resolve_slow_event_threshold(self) -> float:
         candidate = os.getenv("DATALENS_SLOW_EVENT_THRESHOLD_MS")
@@ -77,9 +83,6 @@ class DatalensApplication(QApplication):
         return event_enum not in self._SLOW_EVENT_IGNORE_TYPES
 
     def notify(self, receiver, event):  # type: ignore[override]
-        # Qt can call `notify` during `__init__` (e.g. when applying styles).
-        if not hasattr(self, "_slow_event_threshold_ms"):
-            return super().notify(receiver, event)
         profile_event = self._should_profile_event(event)
         start = time.perf_counter() if profile_event else 0.0
         try:
@@ -101,15 +104,10 @@ class DatalensApplication(QApplication):
                 if elapsed_ms >= self._slow_event_threshold_ms:
                     receiver_name = type(receiver).__name__ if receiver is not None else "<none>"
                     event_name = str(int(event.type())) if isinstance(event, QEvent) else "<unknown>"
-                    key = (event_name, receiver_name)
-                    now = time.monotonic()
-                    last = self._slow_event_last_notice.get(key, 0.0)
-                    if now - last >= self._SLOW_EVENT_NOTICE_INTERVAL_S:
-                        self._slow_event_last_notice[key] = now
-                        self._slow_event_log.warning(
-                            "Slow Qt event %s handled by %s: %.1f ms",
-                            event_name,
-                            receiver_name,
-                            elapsed_ms,
-                            extra={"operation": "qt_event", "phase": "slow"},
-                        )
+                    self._slow_event_log.warning(
+                        "Slow Qt event %s handled by %s: %.1f ms",
+                        event_name,
+                        receiver_name,
+                        elapsed_ms,
+                        extra={"operation": "qt_event", "phase": "slow"},
+                    )

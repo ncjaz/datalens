@@ -7,7 +7,9 @@ This document is a high-level architectural overview of **DataLens V2 as impleme
 It complements:
 - `datalens/src/AGENTS.md` (engineering rules + layering contract)
 - `datalens/src/review_and_plan/project_db_and_persistence.md` (project DB + persistence plan/status)
+- `datalens/src/review_and_plan/project_service.md` (project lifecycle plan/status)
 - `datalens/src/review_and_plan/logging_system.md` (logging plan/status)
+- `datalens/src/review_and_plan/event_hub.md` (EventHub plan/status)
 
 If you're looking for the older, very detailed architecture write-ups/diagrams (600+ lines), those still exist but are only partially accurate for V2:
 - `datalens/src/review_and_plan/ARCHITECTURE_SUMMARY.md` (legacy, comprehensive narrative)
@@ -122,6 +124,17 @@ flowchart TB
 
 This is the "roadmap" implied by the existing plans + current gaps.
 
+## Feature Status Index (Single Source of Truth)
+
+Use this section as the quick "what's left" checklist. Each item should point to an owned plan/spec doc and state whether it is complete.
+
+| Feature | Objective | Plan/Spec | Status |
+| --- | --- | --- | --- |
+| Project DB + persistence | Non-blocking, plugin-safe project storage + flush semantics | `datalens/src/review_and_plan/project_db_and_persistence.md` | In progress (hardening ongoing) |
+| Project service | Project open/close/switch orchestration + failure UX | `datalens/src/review_and_plan/project_service.md` | In progress (hardening planned) |
+| Logging system | Non-blocking logging + UI slow-event profiling | `datalens/src/review_and_plan/logging_system.md` | In progress |
+| Event hub | App-wide semantic events (queued UI-thread delivery; publish non-blocking) | `datalens/src/review_and_plan/event_hub.md` | Planned |
+
 ### 1) Real feature implementations (beyond placeholders)
 - Build real workspace UIs for shipped plugins (annotation/review/meval/train/capture).
 - Implement V2 annotation persistence pipeline (V1-style):
@@ -138,6 +151,8 @@ When implemented, they should follow the plugin safety rules in `datalens/src/AG
 
 ### 3) Project/open UX hardening
 - Finish the "project selection / open project" UI flows (welcome screen currently stores paths but the UI is still simplified).
+- Decide and document the supported **no-project** startup mode ("open app without a project"), and enforce gating across UI + plugins (see `datalens/src/review_and_plan/project_service.md`).
+- Consider adopting **UI-first startup**: show the main window with no project, then open the requested project via a loader flow (see `datalens/src/review_and_plan/project_service.md`).
 - Ensure project open does not block UI and correctly stages:
   - inspect -> migrate core -> plugin migrate -> ready -> derived artifacts
 

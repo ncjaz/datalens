@@ -158,7 +158,7 @@ class LoaderDialog(QDialog):
         t = self._theme
 
         bg = t.with_alpha_hex(t.secondary_color, 0.94)
-        border = t.with_alpha_hex(t.tertiary_color, 0.90)
+        border = t.with_alpha_hex(t.primary_color, 0.45)
         subtitle = t.with_alpha_hex(t.text_color, 0.75)
 
         self._card.setStyleSheet(
@@ -275,3 +275,12 @@ class LoaderDialog(QDialog):
         except Exception:
             pass
         super().closeEvent(event)
+
+    def hideEvent(self, event) -> None:  # type: ignore[override]
+        # If the dialog is hidden (e.g. right before close), stop the animation
+        # immediately to avoid burning CPU on a hidden window.
+        try:
+            self._spinner.stop()
+        except Exception:
+            pass
+        super().hideEvent(event)

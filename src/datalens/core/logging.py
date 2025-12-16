@@ -276,6 +276,7 @@ def init_logging(
     *,
     app_name: str = "datalens",
     log_dir: Path | None = None,
+    log_to_file: bool = True,
     level: int = logging.DEBUG,
     console_level: int = logging.INFO,
     max_bytes: int = 5_000_000,
@@ -294,29 +295,32 @@ def init_logging(
             return _SYSTEM
 
         resolved_log_dir = Path(log_dir) if log_dir is not None else (datalens_user_data_dir(app_name=app_name) / "logs")
-        resolved_log_dir.mkdir(parents=True, exist_ok=True)
-
-        log_path: Path | None = resolved_log_dir / f"{app_name}.log"
+        if log_to_file:
+            resolved_log_dir.mkdir(parents=True, exist_ok=True)
+            log_path: Path | None = resolved_log_dir / f"{app_name}.log"
+        else:
+            log_path = None
 
         # Handlers used by the QueueListener thread.
         formatter = CompactFormatter()
 
         handlers: list[logging.Handler] = []
 
-        # File handler (best-effort): if it fails, we still keep stderr logging.
-        try:
-            file_handler = logging.handlers.RotatingFileHandler(
-                log_path,
-                maxBytes=int(max_bytes),
-                backupCount=int(backup_count),
-                encoding="utf-8",
-                delay=True,
-            )
-            file_handler.setLevel(level)
-            file_handler.setFormatter(formatter)
-            handlers.append(file_handler)
-        except Exception:
-            log_path = None
+        if log_path is not None:
+            # File handler (best-effort): if it fails, we still keep stderr logging.
+            try:
+                file_handler = logging.handlers.RotatingFileHandler(
+                    log_path,
+                    maxBytes=int(max_bytes),
+                    backupCount=int(backup_count),
+                    encoding="utf-8",
+                    delay=True,
+                )
+                file_handler.setLevel(level)
+                file_handler.setFormatter(formatter)
+                handlers.append(file_handler)
+            except Exception:
+                log_path = None
 
         stderr_handler = logging.StreamHandler(stream=sys.stderr)
         stderr_handler.setLevel(console_level)
@@ -350,7 +354,7 @@ def init_logging(
         datalens_logger.debug("Logging initialised", extra={"operation": "init_logging", "phase": "end"})
         if log_path is None:
             datalens_logger.warning(
-                "File logging disabled (unable to open log file); using stderr only",
+                "File logging disabled; using stderr only",
                 extra={"operation": "init_logging", "phase": "warning"},
             )
 

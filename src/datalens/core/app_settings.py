@@ -16,6 +16,23 @@ def _settings_from_dict(data: dict[str, Any]) -> AppSettings:
     last_project_root_raw = data.get("last_project_root")
     last_project_root = Path(last_project_root_raw) if isinstance(last_project_root_raw, str) else None
 
+    recent_projects_raw = data.get("recent_projects", [])
+    recent_projects: list[Path] = []
+    if isinstance(recent_projects_raw, list):
+        for item in recent_projects_raw:
+            if not isinstance(item, str):
+                continue
+            try:
+                path = Path(item)
+            except Exception:
+                continue
+            if path.exists():
+                recent_projects.append(path)
+
+    welcome_splitter_state_b64 = data.get("welcome_splitter_state_b64")
+    if not isinstance(welcome_splitter_state_b64, str):
+        welcome_splitter_state_b64 = None
+
     enabled_plugins_raw = data.get("enabled_plugins", [])
     enabled_plugins: frozenset[PluginId] = frozenset(
         PluginId(p) for p in enabled_plugins_raw if isinstance(p, str)
@@ -54,6 +71,8 @@ def _settings_from_dict(data: dict[str, Any]) -> AppSettings:
 
     return AppSettings(
         last_project_root=last_project_root,
+        recent_projects=tuple(recent_projects),
+        welcome_splitter_state_b64=welcome_splitter_state_b64,
         enabled_plugins=enabled_plugins,
         plugin_settings=plugin_settings,
         theme_name=theme_name,
@@ -65,6 +84,8 @@ def _settings_from_dict(data: dict[str, Any]) -> AppSettings:
 def _settings_to_dict(settings: AppSettings) -> dict[str, Any]:
     payload = asdict(settings)
     payload["last_project_root"] = str(settings.last_project_root) if settings.last_project_root else None
+    payload["recent_projects"] = [str(p) for p in settings.recent_projects]
+    payload["welcome_splitter_state_b64"] = settings.welcome_splitter_state_b64
     payload["enabled_plugins"] = list(settings.enabled_plugins)
     payload["theme_opacity"] = asdict(settings.theme_opacity)
     payload["user_profile"] = asdict(settings.user_profile) if settings.user_profile else None

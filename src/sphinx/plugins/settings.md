@@ -6,6 +6,27 @@ DataLens persists lightweight app + plugin settings in a per-user JSON file:
 - Schema is `datalens.domain.settings.AppSettings`
 - Per-plugin settings live under `AppSettings.plugin_settings` keyed by plugin ID
 
+## Built-in app fields
+
+`AppSettings` also stores a few core app fields used by the welcome/startup UX:
+
+- `last_project_root`: last selected project folder (used for `--skip-welcome` + “load last project”)
+- `recent_projects`: most recently opened project folders (used to populate the welcome “recents” list)
+- `welcome_splitter_state_b64`: legacy/temporary (deprecated) welcome UI state field (do not use for new UI persistence)
+
+UI state note:
+
+- UI geometry/layout state (window sizes, splitters, docks) is persisted via Qt `QSettings` (see `datalens.ui.qt_settings`)
+  for lower overhead and better native integration.
+
+## App scope vs project scope
+
+As a rule of thumb:
+
+- App/user scoped semantic state belongs in `settings.json` (user data dir): recent projects, enabled plugins, profiles.
+- App/user scoped UI layout state belongs in `QSettings`: geometry, splitters, docks.
+- Project scoped state belongs in `<project>/.datalens/project.sqlite`: per-project plugin state, project UI layout.
+
 ## Updating settings safely
 
 Use the settings helpers so updates are atomic (load → replace → save) and safe

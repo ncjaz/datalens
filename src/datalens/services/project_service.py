@@ -12,6 +12,7 @@ import threading
 import time
 from concurrent.futures import Future
 from pathlib import Path
+from typing import TYPE_CHECKING, Callable
 
 from datalens.core.context import AppContext, ProjectContext
 from datalens.core.logging import get_logger
@@ -29,6 +30,23 @@ from datalens.services.db.project_db import SqliteProjectDb
 
 
 log = get_logger(__name__)
+
+if TYPE_CHECKING:
+    from datalens.services.plugins.host import PluginHost
+
+
+class ProjectCloseError(RuntimeError):
+    def __init__(self, *, phase: str, message: str, cause: Exception | None = None) -> None:
+        super().__init__(message)
+        self.phase = phase
+        self.__cause__ = cause
+
+
+class ProjectOpenError(RuntimeError):
+    def __init__(self, *, phase: str, message: str, cause: Exception | None = None) -> None:
+        super().__init__(message)
+        self.phase = phase
+        self.__cause__ = cause
 
 
 def _require_not_ui_thread(operation: str) -> None:
@@ -76,22 +94,11 @@ def load_project(project_root: Path, *, io: IoWriter) -> ProjectContext:
     # Apply core schema creation/repairs only if needed. This must never touch
     # plugin-owned tables.
     if action == "ensure":
-        project_db.execute_write(lambda conn: ensure_core_schema(conn)).result(timeout=15.0)
+        project_db.execute_core_write(lambda conn: ensure_core_schema(conn)).result(timeout=15.0)
     elif action == "migrate":
-        project_db.execute_write(
+        project_db.execute_core_write(
             lambda conn: migrate_core_schema(conn, from_schema_version=from_schema_version)
         ).result(timeout=30.0)
-
-    # Derived metadata is best effort and should not block project readiness.
-    try:
-        meta = project_db.execute_read(build_project_meta).result(timeout=5.0)
-        io.write_json_atomic(project_meta_path(root), meta)
-    except Exception:
-        log.debug(
-            "Failed to write derived project metadata (best-effort)",
-            extra={"operation": "project_meta", "phase": "warning"},
-            exc_info=True,
-        )
 
     return ProjectContext(project_root=root, project_db=project_db)
 
@@ -118,9 +125,49 @@ def load_project_async(project_root: Path, *, io: IoWriter) -> Future[ProjectCon
     return future
 
 
-def attach_project(app_ctx: AppContext, project: ProjectContext) -> None:
+def attach_project(app_ctx: AppContext, project: ProjectContext, *, schedule_meta: bool = True) -> None:
     """Attach a loaded project context to the app context (gating)."""
     app_ctx.active_project = project
+    if schedule_meta:
+        schedule_project_meta_write(app_ctx, project)
+
+
+def schedule_project_meta_write(app_ctx: AppContext, project: ProjectContext) -> None:
+    """
+    Best-effort derived metadata write after a project becomes "ready".
+
+    This must never block the project open critical path.
+    """
+
+    def on_meta_done(fut: Future[dict[str, object]]) -> None:
+        try:
+            meta = fut.result()
+        except Exception:
+            log.debug(
+                "Failed to build derived project metadata (best-effort)",
+                extra={"operation": "project_meta", "phase": "warning"},
+                exc_info=True,
+            )
+            return
+
+        try:
+            app_ctx.io.write_json_atomic(project_meta_path(project.project_root), meta)
+        except Exception:
+            log.debug(
+                "Failed to enqueue derived project metadata write (best-effort)",
+                extra={"operation": "project_meta", "phase": "warning"},
+                exc_info=True,
+            )
+
+    try:
+        future = project.project_db.execute_core_read(build_project_meta)
+        future.add_done_callback(on_meta_done)
+    except Exception:
+        log.debug(
+            "Failed to schedule derived project metadata write (best-effort)",
+            extra={"operation": "project_meta", "phase": "warning"},
+            exc_info=True,
+        )
 
 
 def open_project(app_ctx: AppContext, project_root: Path) -> ProjectContext:
@@ -139,6 +186,90 @@ def open_project(app_ctx: AppContext, project_root: Path) -> ProjectContext:
     project = load_project(project_root, io=app_ctx.io)
     attach_project(app_ctx, project)
     return project
+
+
+def open_project_with_plugins(
+    app_ctx: AppContext,
+    project_root: Path,
+    *,
+    plugin_host: "PluginHost | None" = None,
+    close_timeout_seconds: float = 30.0,
+    plugin_migrate_timeout_seconds: float = 60.0,
+    await_plugin_opened: bool = False,
+    plugin_opened_timeout_seconds: float = 30.0,
+    progress: Callable[[str], None] | None = None,
+) -> ProjectContext:
+    """
+    Open/switch a project and run plugin project lifecycle hooks.
+
+    This is the canonical project-open pipeline for UI entrypoints:
+    welcome, MRU, menu "Open...", CLI `--load-last-project`.
+
+    Important:
+        This may block. Do not call it on the UI thread. Run it in a loader
+        stage or background pipeline.
+
+    Notes:
+    - Project meta generation is scheduled only after plugin hooks succeed.
+    - If plugin migrations fail, the project is closed and `active_project` is
+      cleared before raising.
+    """
+    _require_not_ui_thread("open_project_with_plugins")
+
+    def emit(text: str) -> None:
+        if progress is None:
+            return
+        try:
+            progress(text)
+        except Exception:
+            return
+
+    try:
+        if app_ctx.active_project is not None:
+            emit("Closing previous project...")
+            close_project_blocking(app_ctx, timeout_seconds=close_timeout_seconds)
+
+        project = load_project(Path(project_root), io=app_ctx.io)
+
+        # Set active_project early so downstream code can rely on gating, but do
+        # not schedule derived metadata until the project is fully "ready".
+        attach_project(app_ctx, project, schedule_meta=False)
+
+        if plugin_host is not None:
+            emit("Running plugin migrations...")
+            migrate_futures = plugin_host.on_project_migrate(app_ctx=app_ctx, project=project)
+            for fut in migrate_futures:
+                fut.result(timeout=plugin_migrate_timeout_seconds)
+
+            emit("Initializing plugins...")
+            opened_futures = plugin_host.on_project_opened(app_ctx=app_ctx, project=project)
+            if await_plugin_opened:
+                for fut in opened_futures:
+                    fut.result(timeout=plugin_opened_timeout_seconds)
+
+        schedule_project_meta_write(app_ctx, project)
+        return project
+    except ProjectCloseError:
+        # Preserve close error shape for callers that want to special-case it.
+        raise
+    except Exception as exc:
+        log.exception(
+            "Project open failed; cleaning up",
+            extra={"operation": "project_open", "phase": "error"},
+        )
+        try:
+            close_project(app_ctx)
+        except Exception:
+            log.warning(
+                "Failed to clean up after project open failure (best-effort)",
+                extra={"operation": "project_open", "phase": "warning"},
+                exc_info=True,
+            )
+        raise ProjectOpenError(
+            phase="open_project_with_plugins",
+            message=f"Failed to open project: {project_root}",
+            cause=exc,
+        ) from exc
 
 
 def close_project(app_ctx: AppContext) -> None:
@@ -213,15 +344,31 @@ def close_project_blocking(app_ctx: AppContext, *, timeout_seconds: float = 30.0
                 exc,
                 extra={"operation": "project_close", "phase": "error"},
             )
-        raise RuntimeError(
-            f"{len(hook_errors)} plugin flush hook(s) failed; project remains open"
-        ) from hook_errors[0]
+        raise ProjectCloseError(
+            phase="plugin_flush_hooks",
+            message=f"{len(hook_errors)} plugin flush hook(s) failed; project remains open",
+            cause=hook_errors[0],
+        )
 
     # 2) DB flush (authoritative project state).
-    current.project_db.flush().result(timeout=remaining())
+    try:
+        current.project_db.flush().result(timeout=remaining())
+    except Exception as exc:
+        raise ProjectCloseError(
+            phase="db_flush",
+            message="Project DB flush failed; project remains open",
+            cause=exc,
+        )
 
     # 3) IO flush (derived artifacts / exports / caches).
-    app_ctx.io.flush().result(timeout=remaining())
+    try:
+        app_ctx.io.flush().result(timeout=remaining())
+    except Exception as exc:
+        raise ProjectCloseError(
+            phase="io_flush",
+            message="Background IO flush failed; project remains open",
+            cause=exc,
+        )
 
     # 4) Close resources.
     try:

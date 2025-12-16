@@ -12,7 +12,7 @@ from datalens.domain.ui.theme import (
     ThemeOpacitySettings,
     ThemeSettings,
 )
-from datalens.ui.theme.color_utils import darken_color, lighten_color
+from datalens.ui.theme.color_utils import contrast_text_color, darken_color, lighten_color
 
 
 class AppTheme(QObject):
@@ -157,7 +157,7 @@ class AppTheme(QObject):
         - Viewports (lists/trees/inputs) use slightly different roles (Base /
           AlternateBase) derived from the same secondary to create the "two
           shade" look in tabs like Annotation.
-        - Selection highlight uses ``tertiary_color``.
+        - Selection highlight uses ``primary_color``.
         """
         if app is None:
             return
@@ -177,8 +177,11 @@ class AppTheme(QObject):
         palette.setColor(QPalette.Text, text)
         palette.setColor(QPalette.ButtonText, text)
 
-        palette.setColor(QPalette.Highlight, QColor(self.tertiary_color))
-        palette.setColor(QPalette.HighlightedText, QColor("#000000"))
+        palette.setColor(QPalette.Highlight, QColor(self.primary_color))
+        palette.setColor(
+            QPalette.HighlightedText,
+            QColor(contrast_text_color(bg_hex=self.primary_color, light_text=self.text_color, dark_text="#000000")),
+        )
 
         palette.setColor(QPalette.ToolTipBase, lighten_color(secondary, 1.20))
         palette.setColor(QPalette.ToolTipText, text)

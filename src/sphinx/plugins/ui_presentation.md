@@ -20,6 +20,31 @@ If `group` is set, the welcome UI can render plugins in a grouped layout:
 
 If `group` is missing, the plugin is rendered as a standalone card.
 
+## UI state persistence (QSettings)
+
+Persist plugin *UI layout/geometry state* using Qt `QSettings` (not `settings.json`).
+
+Rules:
+
+- Namespace keys by plugin id so plugins can be enabled/disabled without collisions:
+  `plugins/<plugin_id>/ui/...`
+- Use `saveGeometry()` / `restoreGeometry()` for windows/dialogs and `saveState()` / `restoreState()` for splitters/docks.
+
+Example (dialog geometry):
+
+```python
+from datalens.ui.qt_settings import plugin_ui_scope
+
+plugin_id = "capture"  # or `str(ctx.plugin.id)`
+scope = plugin_ui_scope(plugin_id, "my_dialog")
+
+# On open/show:
+scope.restore_geometry("geometry", dialog)
+
+# On close:
+scope.save_geometry("geometry", dialog)
+```
+
 ## Dependencies
 
 For plugins with a `requirements.txt` and/or `manual_pip_requirements`, show:
