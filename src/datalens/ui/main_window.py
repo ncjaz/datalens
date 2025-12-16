@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QByteArray
 from PySide6.QtCore import Qt
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QApplication, QLabel, QMainWindow, QMessageBox, QWidget
+from PySide6.QtWidgets import QApplication, QFileDialog, QLabel, QMainWindow, QMessageBox, QWidget
 
 from datalens.domain.plugin import PluginId
 from datalens.infra.persistence_queue import PersistenceQueue
@@ -15,19 +16,25 @@ from datalens.ui.menus.menubar import DatalensMenuBar
 class MainWindow(QMainWindow):
     """Minimal main application window placeholder."""
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, *, recent_projects: list[Path] | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("DataLens")
         self.resize(1200, 800)
         self._close_in_progress = False
+        self._recent_projects: list[Path] = list(recent_projects or [])
 
         menubar = DatalensMenuBar(self)
         menubar.newProjectRequested.connect(self._on_new_project_requested)
+        menubar.openProjectRequested.connect(self._on_open_project_requested)
+        menubar.closeProjectRequested.connect(self._on_close_project_requested)
+        menubar.openRecentProjectRequested.connect(self._on_open_recent_project_requested)
         self.setMenuBar(menubar)
+        self._menubar = menubar
+        self._menubar.set_recent_projects(self._recent_projects)
 
-        label = QLabel("Main Window (placeholder)")
-        label.setAlignment(Qt.AlignCenter)
-        self.setCentralWidget(label)
+        self._label = QLabel("")
+        self._label.setAlignment(Qt.AlignCenter)
+        self.setCentralWidget(self._label)
 
         self._ui_state_plugin_id = PluginId("core.ui")
         self._ui_state_key = "main_window_state"
@@ -43,9 +50,23 @@ class MainWindow(QMainWindow):
             save_func=self._save_ui_state,
         )
         self._restore_ui_state_from_project_db()
+        self._refresh_project_state()
 
     def _on_new_project_requested(self) -> None:
         QMessageBox.information(self, "New Project", "New Project is not implemented yet.")
+
+    def _on_open_project_requested(self) -> None:
+        directory = QFileDialog.getExistingDirectory(self, "Open project folder", self._best_open_start_dir())
+        if not directory:
+            return
+        self._open_project(Path(directory))
+
+    def _on_open_recent_project_requested(self, path: object) -> None:
+        if isinstance(path, Path):
+            self._open_project(path)
+
+    def _on_close_project_requested(self) -> None:
+        self._close_project_interactive()
 
     def moveEvent(self, event) -> None:
         super().moveEvent(event)
@@ -117,6 +138,212 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, lambda: apply(value))
 
         future.add_done_callback(on_done)
+
+    def _best_open_start_dir(self) -> str:
+        app_ctx = self._get_app_context()
+        project = getattr(app_ctx, "active_project", None) if app_ctx is not None else None
+        if project is not None:
+            return str(project.project_root)
+        if self._recent_projects:
+            return str(self._recent_projects[0])
+        return ""
+
+    def _refresh_project_state(self) -> None:
+        app_ctx = self._get_app_context()
+        project = getattr(app_ctx, "active_project", None) if app_ctx is not None else None
+        if project is None:
+            self._label.setText("No project open.")
+            if hasattr(self, "_menubar"):
+                self._menubar.set_has_project(False)
+            return
+        self._label.setText(f"Project: {project.project_root}")
+        if hasattr(self, "_menubar"):
+            self._menubar.set_has_project(True)
+
+    def on_project_changed(self) -> None:
+        """
+        Refresh UI state after a project open/close/switch.
+
+        This is intentionally lightweight: it updates gating text/menu state and
+        restores any persisted per-project main window UI state.
+        """
+        self._ui_state_last_snapshot = None
+        self._restore_ui_state_from_project_db()
+        self._refresh_project_state()
+
+    def _open_project(self, project_root: Path) -> None:
+        from datalens.infra.background.loader_context import LoaderContext
+        from datalens.infra.background.loader_runner import run_with_loader
+        from datalens.services.project_service import ProjectCloseError, open_project_with_plugins, close_project
+        from datalens.services.settings_store import SettingsStore
+        from datalens.domain.settings import AppSettings
+        from dataclasses import replace
+
+        app_ctx = self._get_app_context()
+        if app_ctx is None:
+            QMessageBox.critical(self, "Open Project", "Application context is not available.")
+            return
+
+        def update_recents(settings: AppSettings) -> AppSettings:
+            recents: list[Path] = [project_root]
+            for p in settings.recent_projects:
+                if p == project_root:
+                    continue
+                recents.append(p)
+                if len(recents) >= 12:
+                    break
+            return replace(settings, last_project_root=project_root, recent_projects=tuple(recents))
+
+        def task(ctx: LoaderContext) -> object:
+            ctx.log("Opening project...")
+            open_project_with_plugins(
+                app_ctx=app_ctx,
+                project_root=project_root,
+                plugin_host=getattr(app_ctx, "plugin_host", None),
+                plugin_migrate_timeout_seconds=60.0,
+                await_plugin_opened=False,
+                progress=ctx.log,
+            )
+            # Persist MRU updates off the UI thread.
+            try:
+                store = SettingsStore()
+                updated = store.update(update_recents)
+                return tuple(updated.recent_projects)
+            except Exception:
+                return None
+
+        def on_done(result: object) -> None:
+            if isinstance(result, tuple) and all(isinstance(p, Path) for p in result):
+                self._recent_projects = list(result)
+                self._menubar.set_recent_projects(self._recent_projects)
+            self.on_project_changed()
+
+        def on_error(exc: Exception) -> None:
+            if isinstance(exc, ProjectCloseError):
+                dialog = QMessageBox(self)
+                dialog.setIcon(QMessageBox.Critical)
+                dialog.setWindowTitle("Failed to Close Project")
+                dialog.setText(str(exc))
+                dialog.setInformativeText(
+                    "Retry to attempt a safe close again, cancel to keep the current project open, "
+                    "or force close and open the new project (may lose unsaved work)."
+                )
+                retry = dialog.addButton("Retry", QMessageBox.AcceptRole)
+                cancel = dialog.addButton("Cancel", QMessageBox.RejectRole)
+                force_btn = dialog.addButton("Force Close + Open", QMessageBox.DestructiveRole)
+                dialog.setDefaultButton(retry)
+                dialog.exec()
+
+                clicked = dialog.clickedButton()
+                if clicked is retry:
+                    self._open_project(project_root)
+                    return
+                if clicked is force_btn:
+                    def force_task(ctx: LoaderContext) -> object:
+                        ctx.log("Force closing current project (best-effort)...")
+                        close_project(app_ctx)
+                        ctx.log("Opening project...")
+                        open_project_with_plugins(
+                            app_ctx=app_ctx,
+                            project_root=project_root,
+                            plugin_host=getattr(app_ctx, "plugin_host", None),
+                            plugin_migrate_timeout_seconds=60.0,
+                            await_plugin_opened=False,
+                            progress=ctx.log,
+                        )
+                        try:
+                            store = SettingsStore()
+                            updated = store.update(update_recents)
+                            return tuple(updated.recent_projects)
+                        except Exception:
+                            return None
+
+                    run_with_loader(
+                        parent=self,
+                        title="Opening Project...",
+                        task=force_task,
+                        on_result=on_done,
+                        on_error=lambda e: QMessageBox.critical(self, "Open Project", str(e)),
+                        dialog_options={"spinner_size": 80, "title_point_size": 18, "subtitle_point_size": 12},
+                    )
+                    return
+                return
+
+            QMessageBox.critical(self, "Open Project", str(exc))
+            self.on_project_changed()
+
+        run_with_loader(
+            parent=self,
+            title="Opening Project...",
+            task=task,
+            on_result=on_done,
+            on_error=on_error,
+            dialog_options={"spinner_size": 80, "title_point_size": 18, "subtitle_point_size": 12},
+        )
+
+    def _close_project_interactive(self) -> None:
+        from datalens.infra.background.loader_context import LoaderContext
+        from datalens.infra.background.loader_runner import run_with_loader
+        from datalens.services.project_service import close_project, close_project_blocking
+
+        app_ctx = self._get_app_context()
+        if app_ctx is None or getattr(app_ctx, "active_project", None) is None:
+            return
+
+        # Ensure the last UI-state snapshot is submitted before the DB flush.
+        try:
+            self._ui_state_queue.flush()
+        except Exception:
+            pass
+
+        def run_close(*, force: bool) -> None:
+            def task(ctx: LoaderContext) -> object:
+                if force:
+                    ctx.log("Force closing project (best-effort)...")
+                    close_project(app_ctx)
+                else:
+                    ctx.log("Flushing project...")
+                    close_project_blocking(app_ctx, timeout_seconds=30.0)
+                ctx.log("Done.")
+                return object()
+
+            def on_done(_: object) -> None:
+                self.on_project_changed()
+
+            def on_error(exc: Exception) -> None:
+                dialog = QMessageBox(self)
+                dialog.setIcon(QMessageBox.Critical)
+                dialog.setWindowTitle("Failed to Close Project")
+                dialog.setText(str(exc))
+                dialog.setInformativeText(
+                    "Retry to attempt a safe close again, cancel to keep the project open, "
+                    "or force close (may lose unsaved work)."
+                )
+                retry = dialog.addButton("Retry", QMessageBox.AcceptRole)
+                cancel = dialog.addButton("Cancel", QMessageBox.RejectRole)
+                force_btn = dialog.addButton("Force Close", QMessageBox.DestructiveRole)
+                dialog.setDefaultButton(retry)
+                dialog.exec()
+
+                clicked = dialog.clickedButton()
+                if clicked is retry:
+                    run_close(force=False)
+                    return
+                if clicked is force_btn:
+                    run_close(force=True)
+                    return
+                _ = cancel
+
+            run_with_loader(
+                parent=self,
+                title="Closing Project...",
+                task=task,
+                on_result=on_done,
+                on_error=on_error,
+                dialog_options={"spinner_size": 80, "title_point_size": 18, "subtitle_point_size": 12},
+            )
+
+        run_close(force=False)
 
     def _get_app_context(self) -> object | None:
         try:

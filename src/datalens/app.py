@@ -115,42 +115,43 @@ def main(argv: list[str] | None = None) -> int:
         load_last_project: bool,
         last_project_root: object | None,
         enabled_plugin_ids: set[str] | None = None,
+        recent_projects: list[object] | None = None,
     ) -> None:
-        def show_main_window() -> None:
-            main_window = MainWindow()
-            main_window.show()
-            app._main_window = main_window  # keep alive
-            if args.debug_ui:
-                from datalens.ui.diagnostics.debug_tools import dump_active_timers, dump_top_level_widgets
-                from datalens.core.logging import get_logger
+        from pathlib import Path
 
-                debug_log = get_logger("datalens.ui.debug")
+        main_window = MainWindow(recent_projects=[p for p in (recent_projects or []) if isinstance(p, Path)])
+        main_window.show()
+        app._main_window = main_window  # keep alive
+        if args.debug_ui:
+            from datalens.ui.diagnostics.debug_tools import dump_active_timers, dump_top_level_widgets
+            from datalens.core.logging import get_logger
 
-                def dump() -> None:
-                    for line in dump_top_level_widgets():
-                        debug_log.info("Top-level widget: %s", line, extra={"operation": "ui_debug", "phase": "widgets"})
-                    timers = dump_active_timers()
+            debug_log = get_logger("datalens.ui.debug")
+
+            def dump() -> None:
+                for line in dump_top_level_widgets():
+                    debug_log.info("Top-level widget: %s", line, extra={"operation": "ui_debug", "phase": "widgets"})
+                timers = dump_active_timers()
+                debug_log.info(
+                    "Active QTimers: %d",
+                    len(timers),
+                    extra={"operation": "ui_debug", "phase": "timers"},
+                )
+                for info in timers[:20]:
                     debug_log.info(
-                        "Active QTimers: %d",
-                        len(timers),
+                        "QTimer interval=%sms single=%s (%s)",
+                        info.interval_ms,
+                        info.single_shot,
+                        info.parent_chain,
                         extra={"operation": "ui_debug", "phase": "timers"},
                     )
-                    for info in timers[:20]:
-                        debug_log.info(
-                            "QTimer interval=%sms single=%s (%s)",
-                            info.interval_ms,
-                            info.single_shot,
-                            info.parent_chain,
-                            extra={"operation": "ui_debug", "phase": "timers"},
-                        )
 
-                QTimer.singleShot(250, dump)
+            QTimer.singleShot(250, dump)
 
         plugin_ids = set(enabled_plugin_ids or set())
         should_open_project = bool(load_last_project and last_project_root)
 
         if not plugin_ids and not should_open_project:
-            show_main_window()
             return
 
         def open_project_task(ctx: LoaderContext) -> object:
@@ -166,11 +167,17 @@ def main(argv: list[str] | None = None) -> int:
             return project
 
         def on_project_opened(project: object) -> None:
-            show_main_window()
+            try:
+                main_window.on_project_changed()
+            except Exception:
+                pass
 
         def on_project_open_error(exc: Exception) -> None:
             log.error("Failed to open project: %s", exc)
-            show_main_window()
+            try:
+                main_window.on_project_changed()
+            except Exception:
+                pass
 
         stages: list[LoaderStage] = []
 
@@ -200,7 +207,7 @@ def main(argv: list[str] | None = None) -> int:
             on_project_opened(project)
 
         run_with_loader_sequence(
-            parent=None,
+            parent=main_window,
             title="Loading...",
             stages=stages,
             on_result=on_sequence_done,
@@ -221,6 +228,11 @@ def main(argv: list[str] | None = None) -> int:
             app.exit(0)
             return
         updated = welcome.updated_settings()
+        selected_root = None
+        try:
+            selected_root = welcome.selected_project_root()
+        except Exception:
+            selected_root = None
         try:
             welcome.close()
             welcome.deleteLater()
@@ -229,8 +241,9 @@ def main(argv: list[str] | None = None) -> int:
 
         show_main(
             load_last_project=True,
-            last_project_root=updated.last_project_root,
+            last_project_root=selected_root,
             enabled_plugin_ids=set(updated.enabled_plugins),
+            recent_projects=list(getattr(updated, "recent_projects", ()) or ()),
         )
 
     def on_startup_done(result: object) -> None:
@@ -254,6 +267,7 @@ def main(argv: list[str] | None = None) -> int:
                         load_last_project=args.load_last_project,
                         last_project_root=settings.last_project_root,
                         enabled_plugin_ids=set(settings.enabled_plugins),
+                        recent_projects=list(getattr(settings, "recent_projects", ()) or ()),
                     )
                     return
         except Exception as exc:

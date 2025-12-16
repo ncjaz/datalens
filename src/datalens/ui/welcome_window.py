@@ -161,6 +161,15 @@ class WelcomeWindow(QDialog):
         """Return settings updated by the welcome selection."""
         return self._settings
 
+    def selected_project_root(self) -> Path | None:
+        """
+        Return the project root selected for *this* continue action.
+
+        This may be None if the user chose to continue without opening a
+        project.
+        """
+        return self._selected_project_root
+
     # ------------------------------------------------------------------
     # UI construction
     # ------------------------------------------------------------------
@@ -476,30 +485,28 @@ class WelcomeWindow(QDialog):
             if p is not None and p.exists() and p.is_dir():
                 self._selected_project_root = p
 
-        if self._selected_project_root is None:
-            QMessageBox.information(
-                self,
-                "Select a Project",
-                "Select a recent project, or click New/Open to choose a project folder.",
-            )
-            return
-
         enabled = frozenset(pid for pid, cb in self._plugin_checkboxes.items() if cb.isChecked())
         selected = self._selected_project_root
-        recents: list[Path] = [selected]
-        for p in self._settings.recent_projects:
-            if p == selected:
-                continue
-            recents.append(p)
-            if len(recents) >= 12:
-                break
 
-        new_settings = replace(
-            self._settings,
-            enabled_plugins=enabled,
-            last_project_root=selected,
-            recent_projects=tuple(recents),
-        )
+        # Allow continuing without a project (no-project mode). In that case we
+        # keep the persisted last/recent project list intact and only update
+        # app-scope selections like enabled plugins.
+        if selected is None:
+            new_settings = replace(self._settings, enabled_plugins=enabled)
+        else:
+            recents: list[Path] = [selected]
+            for p in self._settings.recent_projects:
+                if p == selected:
+                    continue
+                recents.append(p)
+                if len(recents) >= 12:
+                    break
+            new_settings = replace(
+                self._settings,
+                enabled_plugins=enabled,
+                last_project_root=selected,
+                recent_projects=tuple(recents),
+            )
         self._settings = new_settings
         try:
             self._settings_writer.request_save(self._settings)
