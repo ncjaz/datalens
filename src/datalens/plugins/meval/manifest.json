@@ -1,0 +1,18 @@
+{
+  "id": "meval",
+  "name": "MEval",
+  "version": "1.0.0",
+  "stage": "alpha",
+  "description": "Evaluate models and metrics.",
+  "group": "Models",
+  "enabled_by_default": false,
+  "features": [
+    {
+      "id": "workspace",
+      "kind": "tab",
+      "entrypoint": "datalens.plugins.meval.meval:MEvalWorkspace",
+      "display_name": "MEval",
+      "description": "Evaluate models and metrics."
+    }
+  ]
+}

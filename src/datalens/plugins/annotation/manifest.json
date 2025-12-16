@@ -1,0 +1,18 @@
+{
+  "id": "annotation",
+  "name": "Annotation",
+  "version": "1.0.0",
+  "stage": "alpha",
+  "description": "Label images with boxes and polygons.",
+  "group": "Data annotation",
+  "enabled_by_default": true,
+  "features": [
+    {
+      "id": "workspace",
+      "kind": "tab",
+      "entrypoint": "datalens.plugins.annotation.annotation:AnnotationWorkspace",
+      "display_name": "Annotation",
+      "description": "Annotate images with boxes and polygons."
+    }
+  ]
+}

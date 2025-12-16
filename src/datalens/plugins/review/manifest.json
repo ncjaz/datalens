@@ -1,0 +1,18 @@
+{
+  "id": "review",
+  "name": "Review",
+  "version": "1.0.0",
+  "stage": "alpha",
+  "description": "Review and validate annotations.",
+  "group": "Data annotation",
+  "enabled_by_default": true,
+  "features": [
+    {
+      "id": "workspace",
+      "kind": "tab",
+      "entrypoint": "datalens.plugins.review.review:ReviewWorkspace",
+      "display_name": "Review",
+      "description": "Review and validate annotation quality."
+    }
+  ]
+}
