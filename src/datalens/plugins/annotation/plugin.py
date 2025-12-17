@@ -13,6 +13,10 @@ class AnnotationPlugin(BasePlugin):
         # TODO(v2): Wire plugin feature registration and any app-scoped services.
         return None
 
+    def on_unload(self, ctx: PluginAppContext) -> None:
+        # TODO(v2): Disconnect UI/actions and stop any app-scoped services.
+        return None
+
     def on_project_opened(self, ctx: PluginProjectContext) -> PluginFutureResult:
         # TODO(v2): Create/open the actual annotation workspace and connect UI events
         # to debounced persistence (V1-style).

@@ -32,7 +32,7 @@ from datalens.services.db.project_db import SqliteProjectDb
 log = get_logger(__name__)
 
 if TYPE_CHECKING:
-    from datalens.services.plugins.host import PluginHost
+    from datalens.services.plugins.runtime.host import PluginHost
 
 
 class ProjectCloseError(RuntimeError):

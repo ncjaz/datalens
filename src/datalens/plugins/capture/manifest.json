@@ -9,7 +9,7 @@
   "features": [
     {
       "id": "workspace",
-      "kind": "tab",
+      "kind": "workspace",
       "entrypoint": "datalens.plugins.capture.capture:CaptureWorkspace",
       "display_name": "Capture",
       "description": "Capture media from webcams and other devices."

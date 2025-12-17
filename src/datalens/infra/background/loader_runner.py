@@ -29,7 +29,7 @@ from PySide6.QtCore import QObject, QTimer, Slot
 from PySide6.QtWidgets import QWidget
 
 from datalens.core.logging import get_logger
-from datalens.infra.background.loader_context import LoaderContext
+from datalens.infra.background.loader_context import LoaderCancelled, LoaderContext
 from datalens.infra.background.loader_worker import LoaderWorker
 
 
@@ -60,6 +60,23 @@ def _callable_debug_name(func: object) -> str:
     return repr(func)
 
 
+def _merge_log_extra(base: dict[str, Any], ctx: dict[str, Any] | None) -> dict[str, Any]:
+    """
+    Merge `ctx` into `base` without overwriting keys already present in `base`.
+
+    This keeps structured loader fields (operation/phase/title/task) stable while
+    allowing caller attribution such as `plugin_id` or `op_id`.
+    """
+    if not ctx:
+        return base
+    merged = dict(base)
+    for k, v in ctx.items():
+        if k in merged:
+            continue
+        merged[k] = v
+    return merged
+
+
 class _ResultRouter(QObject):
     """
     Ensure loader completion handlers run on the UI thread.
@@ -79,7 +96,9 @@ class _ResultRouter(QObject):
         dialog_title: str,
         on_result: Callable[[Any], None] | None,
         on_error: Callable[[Exception], None] | None,
+        on_cancelled: Callable[[], None] | None,
         keep_open_on_error: bool,
+        log_context: dict[str, Any] | None,
     ) -> None:
         super().__init__(dialog)
         self._dialog = dialog
@@ -87,7 +106,9 @@ class _ResultRouter(QObject):
         self._dialog_title = str(dialog_title)
         self._on_result = on_result
         self._on_error = on_error
+        self._on_cancelled = on_cancelled
         self._keep_open_on_error = keep_open_on_error
+        self._log_context = log_context or None
         self._log = get_logger("datalens.ui.loader")
 
     @Slot(str)
@@ -98,7 +119,10 @@ class _ResultRouter(QObject):
         try:
             self._log.info(
                 message,
-                extra={"operation": "loader_dialog", "phase": "message", "title": self._dialog_title},
+                extra=_merge_log_extra(
+                    {"operation": "loader_dialog", "phase": "message", "title": self._dialog_title},
+                    self._log_context,
+                ),
             )
         except Exception:
             pass
@@ -136,7 +160,10 @@ class _ResultRouter(QObject):
         try:
             self._log.info(
                 "Loader completed",
-                extra={"operation": "loader_dialog", "phase": "completed", "title": self._dialog_title},
+                extra=_merge_log_extra(
+                    {"operation": "loader_dialog", "phase": "completed", "title": self._dialog_title},
+                    self._log_context,
+                ),
             )
         except Exception:
             pass
@@ -145,30 +172,67 @@ class _ResultRouter(QObject):
 
     @Slot(Exception)
     def on_failed(self, exc: Exception) -> None:
-        try:
-            if self._keep_open_on_error:
+        if self._keep_open_on_error:
+            try:
+                show_error = getattr(self._dialog, "show_error", None)
+                if callable(show_error):
+                    show_error(str(exc))
+            except Exception:
+                pass
+        else:
+            # Close the loader before invoking `on_error`. Many handlers show a
+            # modal dialog (QMessageBox/WelcomeWindow.exec) which would
+            # otherwise block and prevent the loader from closing.
+            try:
                 try:
-                    show_error = getattr(self._dialog, "show_error", None)
-                    if callable(show_error):
-                        show_error(str(exc))
+                    hide = getattr(self._dialog, "hide", None)
+                    if callable(hide):
+                        hide()
                 except Exception:
                     pass
-            if callable(self._on_error):
-                self._on_error(exc)
-        finally:
-            if not self._keep_open_on_error:
-                try:
-                    self._dialog.close()
-                finally:
-                    self._cleanup()
+                self._dialog.close()
+            finally:
+                self._cleanup()
+
         try:
             self._log.error(
                 "Loader failed: %s",
                 exc,
-                extra={"operation": "loader_dialog", "phase": "error", "title": self._dialog_title},
+                extra=_merge_log_extra(
+                    {"operation": "loader_dialog", "phase": "error", "title": self._dialog_title},
+                    self._log_context,
+                ),
             )
         except Exception:
             pass
+
+        if callable(self._on_error):
+            QTimer.singleShot(0, lambda: self._on_error(exc))
+
+    @Slot()
+    def on_cancelled(self) -> None:
+        try:
+            try:
+                hide = getattr(self._dialog, "hide", None)
+                if callable(hide):
+                    hide()
+            except Exception:
+                pass
+            self._dialog.close()
+        finally:
+            self._cleanup()
+        try:
+            self._log.info(
+                "Loader cancelled",
+                extra=_merge_log_extra(
+                    {"operation": "loader_dialog", "phase": "cancelled", "title": self._dialog_title},
+                    self._log_context,
+                ),
+            )
+        except Exception:
+            pass
+        if callable(self._on_cancelled):
+            QTimer.singleShot(0, lambda: self._on_cancelled())
 
 
 def run_with_loader(
@@ -177,6 +241,7 @@ def run_with_loader(
     task: Callable[[Any], Any],
     on_result: Optional[Callable[[Any], None]] = None,
     on_error: Optional[Callable[[Exception], None]] = None,
+    on_cancelled: Optional[Callable[[], None]] = None,
     dialog_options: dict[str, Any] | None = None,
 ) -> None:
     """
@@ -199,6 +264,9 @@ def run_with_loader(
     on_error:
         Optional callback invoked with the raised ``Exception`` if the task
         fails.
+    on_cancelled:
+        Optional callback invoked if the user requested cancellation and the
+        task cooperatively exited (raised ``LoaderCancelled``).
 
     Notes
     -----
@@ -206,6 +274,21 @@ def run_with_loader(
 
     The loader dialog is imported lazily at runtime in order to avoid
     circular dependencies between UI and infrastructure modules.
+
+    Cancellation
+    ------------
+    Cancellation is cooperative. To enable it, pass:
+
+    - ``dialog_options={"cancelable": True}``
+    - and ensure your task checks ``ctx.is_cancel_requested()`` (or calls
+      ``ctx.raise_if_cancelled()``) and then exits.
+
+    Logging attribution
+    -------------------
+    The loader logs include the callable debug name, but you can attach explicit
+    attribution (e.g. plugin id, operation id) by passing:
+
+    - ``dialog_options={"log_context": {...}}``
     """
     # Avoid circular imports until LoaderDialog exists
     from datalens.ui.widgets.dialogs.loader_dialog import LoaderDialog
@@ -221,13 +304,26 @@ def run_with_loader(
         theme = AppTheme()
 
     keep_open_on_error = False
+    cancelable = False
+    log_context: dict[str, Any] | None = None
     dialog_kwargs: dict[str, Any] = {"title": title, "parent": parent, "theme": theme}
     if dialog_options:
         keep_open_on_error = bool(dialog_options.get("keep_open_on_error", False))
-        dialog_kwargs.update({k: v for k, v in dialog_options.items() if k != "keep_open_on_error"})
+        cancelable = bool(dialog_options.get("cancelable", False))
+        candidate_log_context = dialog_options.get("log_context")
+        if isinstance(candidate_log_context, dict):
+            log_context = dict(candidate_log_context)
+        dialog_kwargs.update(
+            {
+                k: v
+                for k, v in dialog_options.items()
+                if k not in ("keep_open_on_error", "cancelable", "log_context")
+            }
+        )
 
     dialog = LoaderDialog(**dialog_kwargs)
     worker = LoaderWorker(task)
+    worker.capture_context()
     # Keep Python references alive for the lifetime of the dialog.
     # (Especially important when parent is None.)
     dialog._loader_worker = worker  # type: ignore[attr-defined]
@@ -292,13 +388,16 @@ def run_with_loader(
         dialog_title=title,
         on_result=on_result,
         on_error=on_error,
+        on_cancelled=on_cancelled,
         keep_open_on_error=keep_open_on_error,
+        log_context=log_context,
     )
     dialog._loader_router = router  # type: ignore[attr-defined]
 
     worker.message.connect(router.on_message)
     worker.progress.connect(router.on_progress)
     worker.finished.connect(router.on_finished)
+    worker.cancelled.connect(router.on_cancelled)
     worker.failed.connect(router.on_failed)
 
     # -------------------------------------------------------------- #
@@ -310,15 +409,48 @@ def run_with_loader(
         task_name = _callable_debug_name(task)
         get_logger("datalens.ui.loader").info(
             "Loader shown",
-            extra={"operation": "loader_dialog", "phase": "show", "title": str(title), "task": task_name},
+            extra=_merge_log_extra(
+                {"operation": "loader_dialog", "phase": "show", "title": str(title), "task": task_name},
+                log_context,
+            ),
         )
         get_logger("datalens.ui.loader").info(
             "Loader task started: %s",
             task_name,
-            extra={"operation": "loader_dialog", "phase": "task_start", "title": str(title), "task": task_name},
+            extra=_merge_log_extra(
+                {"operation": "loader_dialog", "phase": "task_start", "title": str(title), "task": task_name},
+                log_context,
+            ),
         )
     except Exception:
         pass
+    if cancelable:
+        try:
+            set_cancel = getattr(dialog, "set_cancel_callback", None)
+            if callable(set_cancel):
+                def _cancel() -> None:
+                    try:
+                        get_logger("datalens.ui.loader").info(
+                            "Loader cancel requested",
+                            extra=_merge_log_extra(
+                                {"operation": "loader_dialog", "phase": "cancel_request", "title": str(title)},
+                                log_context,
+                            ),
+                        )
+                    except Exception:
+                        pass
+                    worker.cancel()
+
+                set_cancel(_cancel)
+            get_logger("datalens.ui.loader").info(
+                "Loader cancel enabled",
+                extra=_merge_log_extra(
+                    {"operation": "loader_dialog", "phase": "cancel_enabled", "title": str(title)},
+                    log_context,
+                ),
+            )
+        except Exception:
+            pass
     # Ensure the dialog has a chance to paint before the background task begins.
     QTimer.singleShot(0, worker.start)
 
@@ -330,6 +462,7 @@ def run_with_loader_sequence(
     stages: Sequence[LoaderStage],
     on_result: Optional[Callable[[list[object]], None]] = None,
     on_error: Optional[Callable[[Exception], None]] = None,
+    on_cancelled: Optional[Callable[[], None]] = None,
     dialog_options: dict[str, Any] | None = None,
 ) -> None:
     """
@@ -339,6 +472,9 @@ def run_with_loader_sequence(
     loader dialogs back-to-back (e.g. enable plugins -> open project).
 
     `on_result` receives the list of per-stage results (in order).
+
+    Cancellation is cooperative (same as :func:`run_with_loader`). Stage tasks
+    receive a LoaderContext that propagates the cancellation token.
     """
     stage_list = list(stages)
 
@@ -388,10 +524,16 @@ def run_with_loader_sequence(
                 overall = (completed + (weight * v)) / total
                 ctx.set_progress(overall)
 
-            stage_ctx = LoaderContext(send_message=ctx.log, send_progress=send_progress)
+            stage_ctx = LoaderContext(
+                send_message=ctx.log,
+                send_progress=send_progress,
+                is_cancel_requested=ctx.is_cancel_requested,
+            )
 
             try:
                 result = stage.task(stage_ctx)
+            except LoaderCancelled:
+                raise
             except Exception as exc:
                 raise RuntimeError(f"Loader stage failed: {stage_name}") from exc
 
@@ -425,5 +567,6 @@ def run_with_loader_sequence(
         task=task,
         on_result=on_result,
         on_error=on_error,
+        on_cancelled=on_cancelled,
         dialog_options=dialog_options,
     )

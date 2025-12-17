@@ -127,7 +127,7 @@ hook on `AppContext` via:
 
 User settings are stored per user (not per project) in `settings.json`:
 
-- schema: `datalens.domain.settings.AppSettings`
+- schema: `datalens.domain.system.settings.AppSettings`
 
 Helpers:
 
@@ -138,3 +138,16 @@ Helpers:
 Long-term: we may unify settings IO onto the same `IoWriter` to keep "file writes
 go through one system" consistent, but the semantics (debounce + file locking)
 must remain.
+
+## Plugins (`datalens.services.plugins`)
+
+The plugin system has two distinct layers:
+
+- **Discovery (metadata-only)**: reads `manifest.json` to build a registry for the welcome UI.
+  - `datalens.services.plugins.loader`
+  - `datalens.services.plugins.registry`
+- **Runtime orchestration (imports + hooks)**: imports enabled plugins and invokes lifecycle hooks.
+  - `datalens.services.plugins.runtime.host` (`PluginHost`)
+  - `datalens.services.plugins.runtime.loader` (imports `plugin.py` safely)
+  - `datalens.services.plugins.runtime.dispatcher` (hook call policy + logging)
+  - `datalens.services.plugins.runtime.contracts` (hook interfaces + contexts)

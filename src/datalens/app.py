@@ -8,6 +8,7 @@ from datalens.core.logging import get_logger, init_logging
 from datalens.infra.background.loader_context import LoaderContext
 from datalens.services.config_service import load_settings
 from datalens.services.plugins import PluginDiscoveryResult, discover_plugins
+from datalens.services.plugins.registry import PluginRecord
 
 
 @dataclass(frozen=True)
@@ -63,25 +64,32 @@ def _startup_task(ctx: LoaderContext) -> object:
     Keep this light for now: the primary goal is to prove the non-blocking
     loader UX. Heavy systems (plugins/services) should be added later.
     """
-    ctx.log("Starting DataLens…")
+    ctx.log("Starting DataLens...")
     try:
         from datalens.infra.paths import settings_json_path
 
         ctx.log(f"Loading settings from: {settings_json_path()}")
     except Exception as exc:
-        ctx.log(f"Loading settings… ({exc})")
+        ctx.log(f"Loading settings... ({exc})")
     settings = load_settings()
     ctx.set_progress(0.25)
 
-    ctx.log("Discovering plugins…")
-    plugin_discovery = discover_plugins()
+    ctx.log("Discovering plugins...")
+    try:
+        from datalens.infra.paths import datalens_user_data_dir
+        from pathlib import Path
+
+        user_data_root = getattr(settings, "user_data_dir", None) or datalens_user_data_dir()
+        plugin_discovery = discover_plugins(user_plugins_root_dir=Path(user_data_root) / "plugins")
+    except Exception:
+        plugin_discovery = discover_plugins()
     ctx.set_progress(0.60)
     ctx.log(f"Found {len(plugin_discovery.registry.all())} plugins.")
     if plugin_discovery.issues:
         ctx.log(f"{len(plugin_discovery.issues)} plugin discovery issues (see logs).")
 
     ctx.set_progress(0.75)
-    ctx.log("Preparing UI theme…")
+    ctx.log("Preparing UI theme...")
     ctx.set_progress(0.90)
     ctx.log("Ready.")
     ctx.set_progress(1.0)
@@ -99,7 +107,7 @@ def main(argv: list[str] | None = None) -> int:
     from PySide6.QtCore import QTimer
 
     from datalens.infra.background.loader_runner import LoaderStage, run_with_loader, run_with_loader_sequence
-    from datalens.services.plugins.host import PluginHost
+    from datalens.services.plugins.runtime.host import PluginHost
     from datalens.ui.application import DatalensApplication
     from datalens.ui.main_window import MainWindow
     from datalens.ui.theme import AppTheme
@@ -109,6 +117,7 @@ def main(argv: list[str] | None = None) -> int:
     theme = AppTheme()
     app = DatalensApplication(argv, theme=theme, slow_event_threshold_ms=args.slow_event_threshold_ms)
     plugin_host: PluginHost | None = None
+    plugin_records: tuple[PluginRecord, ...] = ()
 
     def show_main(
         *,
@@ -119,7 +128,11 @@ def main(argv: list[str] | None = None) -> int:
     ) -> None:
         from pathlib import Path
 
-        main_window = MainWindow(recent_projects=[p for p in (recent_projects or []) if isinstance(p, Path)])
+        main_window = MainWindow(
+            recent_projects=[p for p in (recent_projects or []) if isinstance(p, Path)],
+            plugins=list(plugin_records),
+            enabled_plugin_ids=enabled_plugin_ids,
+        )
         main_window.show()
         app._main_window = main_window  # keep alive
         if args.debug_ui:
@@ -170,14 +183,14 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 main_window.on_project_changed()
             except Exception:
-                pass
+                log.warning("Failed to update main window on project open (best-effort)", exc_info=True)
 
         def on_project_open_error(exc: Exception) -> None:
             log.error("Failed to open project: %s", exc)
             try:
                 main_window.on_project_changed()
             except Exception:
-                pass
+                log.warning("Failed to update main window on project open error (best-effort)", exc_info=True)
 
         stages: list[LoaderStage] = []
 
@@ -185,7 +198,12 @@ def main(argv: list[str] | None = None) -> int:
             def enable_plugins_task(ctx: LoaderContext) -> object:
                 if plugin_host is None:
                     return None
-                plugin_host.enable(app_ctx=app.app_context, plugin_ids=plugin_ids)
+                try:
+                    preview = ", ".join(sorted(str(pid) for pid in plugin_ids))
+                    ctx.log(f"Enabling {len(plugin_ids)} plugin(s): {preview}")
+                except Exception:
+                    ctx.log("Enabling selected plugins...")
+                plugin_host.set_enabled(app_ctx=app.app_context, plugin_ids=plugin_ids)
                 ctx.set_progress(1.0)
                 return None
 
@@ -195,6 +213,13 @@ def main(argv: list[str] | None = None) -> int:
             stages.append(LoaderStage(name="Opening project...", task=open_project_task, weight=3.0))
 
         def on_sequence_done(results: list[object]) -> None:
+            # Plugins are enabled in background stages; once complete, re-dispatch
+            # workspace focus so the visible workspace receives `on_focus`.
+            try:
+                main_window.on_plugins_enabled()
+            except Exception:
+                log.debug("Failed to dispatch plugin focus after enabling (best-effort)", exc_info=True)
+
             # If a project was opened, it will be the last non-None stage result.
             project: object | None = None
             for item in reversed(results):
@@ -202,7 +227,10 @@ def main(argv: list[str] | None = None) -> int:
                     project = item
                     break
             if project is None:
-                show_main_window()
+                try:
+                    main_window.on_project_changed()
+                except Exception:
+                    log.warning("Failed to update main window after loader sequence (best-effort)", exc_info=True)
                 return
             on_project_opened(project)
 
@@ -247,17 +275,20 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     def on_startup_done(result: object) -> None:
-        nonlocal plugin_host
+        nonlocal plugin_host, plugin_records
         if isinstance(result, StartupResult):
             settings = result.settings
-            plugins = tuple(r.definition for r in result.plugin_discovery.registry.all())
+            plugin_records = tuple(result.plugin_discovery.registry.all())
+            plugins = tuple(r.definition for r in plugin_records)
             plugin_host = PluginHost(result.plugin_discovery.registry)
             app.app_context.plugin_host = plugin_host
         else:
+            # Defensive fallback: `_startup_task` currently always returns `StartupResult`,
+            # but keep this branch so alternate startup tasks can return settings directly.
             settings = result
             plugins = ()
         try:
-            from datalens.domain.settings import AppSettings
+            from datalens.domain.system.settings import AppSettings
 
             if isinstance(settings, AppSettings):
                 theme.set_opacity(settings.theme_opacity)
@@ -283,7 +314,7 @@ def main(argv: list[str] | None = None) -> int:
     def run_startup() -> None:
         run_with_loader(
             parent=None,
-            title="Launching DataLens…",
+            title="Launching DataLens...",
             task=_startup_task,
             on_result=on_startup_done,
             on_error=on_startup_error,
@@ -305,6 +336,12 @@ def main(argv: list[str] | None = None) -> int:
         default_debounced_settings_writer().flush()
     except Exception:
         log.warning("Failed to flush settings writer on exit (best-effort)", exc_info=True)
+    try:
+        plugin_host = getattr(app.app_context, "plugin_host", None)
+        if plugin_host is not None:
+            plugin_host.shutdown(app_ctx=app.app_context)
+    except Exception:
+        log.warning("Failed to unload plugins on exit (best-effort)", exc_info=True)
     try:
         app.app_context.io.close(flush=True, timeout_seconds=5.0)
     except Exception:

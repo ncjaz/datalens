@@ -8,13 +8,15 @@ from typing import Any
 
 from datalens.services.background_io.writer import IoWriter, default_io_writer
 from datalens.services.config_service import settings_store
+from datalens.services.plugin_state_registry import PluginStateRegistry
+from datalens.services.workspace_state_service import WorkspaceStateService
 from datalens.services.db.project_db import ProjectDb
 from datalens.ui.theme.app_theme import AppTheme
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from datalens.services.plugins.host import PluginHost
+    from datalens.services.plugins.runtime.host import PluginHost
 
 
 class NoActiveProjectError(RuntimeError):
@@ -46,6 +48,8 @@ class AppContext:
 
     theme: AppTheme
     io: IoWriter
+    workspace_state: WorkspaceStateService
+    plugin_state: PluginStateRegistry
     active_project: ProjectContext | None = None
     project_flush_hooks: list[ProjectFlushHook] = field(default_factory=list)
     plugin_host: "PluginHost | None" = None
@@ -107,4 +111,9 @@ def create_app_context(theme: AppTheme) -> AppContext:
     be added as the plugin runtime lands.
     """
     _ = settings_store()  # ensure settings store is initialised/cached
-    return AppContext(theme=theme, io=default_io_writer())
+    return AppContext(
+        theme=theme,
+        io=default_io_writer(),
+        workspace_state=WorkspaceStateService(),
+        plugin_state=PluginStateRegistry(),
+    )

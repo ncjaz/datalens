@@ -16,7 +16,7 @@ Attribution:
   with overrides supported via context binding or LoggerAdapter extras.
 
 Pairing / related systems:
-- Plugin lifecycle: `datalens/services/plugins/host.py`
+- Plugin lifecycle: `datalens/services/plugins/runtime/host.py`
 - Shared executors that should propagate logging context:
   - DB: `datalens/services/db/project_db.py`
   - IO: `datalens/services/background_io/writer.py`
@@ -396,7 +396,35 @@ def get_logger(name: str | None = None, **bind: Any) -> logging.LoggerAdapter:
     Prefer calling this with `__name__` so layer/subsystem inference works.
     """
     logger = logging.getLogger(name or "datalens")
-    return logging.LoggerAdapter(logger, dict(bind))
+    return DatalensLoggerAdapter(logger, dict(bind))
+
+
+class DatalensLoggerAdapter(logging.LoggerAdapter):
+    """
+    LoggerAdapter that merges call-site ``extra`` with bound fields.
+
+    Python's stdlib LoggerAdapter overwrites ``kwargs['extra']`` instead of
+    merging, which would discard per-call attribution (operation/phase/plugin).
+    """
+
+    def process(self, msg: Any, kwargs: dict[str, Any]) -> tuple[Any, dict[str, Any]]:  # type: ignore[override]
+        call_extra = kwargs.get("extra")
+        merged: dict[str, Any] = dict(self.extra or {})
+        if isinstance(call_extra, dict):
+            merged.update(call_extra)
+        kwargs["extra"] = merged
+        return msg, kwargs
+
+
+def current_log_context() -> dict[str, Any]:
+    """
+    Return the currently bound logging context (contextvars snapshot).
+
+    Useful for diagnostics and tests that need to verify context propagation
+    across threads/executors.
+    """
+    ctx = _LOG_CONTEXT.get() or {}
+    return dict(ctx)
 
 
 @contextmanager

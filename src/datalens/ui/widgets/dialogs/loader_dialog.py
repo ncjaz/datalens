@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
+from typing import Callable
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
@@ -42,6 +43,7 @@ class LoaderDialog(QDialog):
         theme: AppTheme,
         parent: QWidget | None = None,
         max_messages: int = 4,
+        cancel_text: str = "Cancel",
     ) -> None:
         flags = Qt.Dialog | Qt.FramelessWindowHint
         if parent is None:
@@ -52,6 +54,8 @@ class LoaderDialog(QDialog):
         self._messages: deque[str] = deque(maxlen=max(1, int(max_messages)))
         self._message_labels: list[QLabel] = []
         self._error_text: str | None = None
+        self._cancel_callback: Callable[[], None] | None = None
+        self._cancel_text = str(cancel_text)
 
         self.setWindowTitle(title)
         if parent is None:
@@ -129,6 +133,11 @@ class LoaderDialog(QDialog):
         actions_row.setSpacing(10)
         actions_row.addStretch(1)
         card_layout.addLayout(actions_row)
+
+        self._cancel_button = DatalensButton(cancel_text, self._theme, ButtonVariant.SECONDARY, self._card)
+        self._cancel_button.clicked.connect(self._on_cancel_clicked)
+        self._cancel_button.hide()
+        actions_row.addWidget(self._cancel_button)
 
         self._copy_error = DatalensButton("Copy error", self._theme, ButtonVariant.SECONDARY, self._card)
         self._copy_error.clicked.connect(self.copy_error_to_clipboard)
@@ -249,6 +258,7 @@ class LoaderDialog(QDialog):
         self._error_text = text
         self._error.setText(text)
         self._error.show()
+        self._cancel_button.hide()
         self._close_button.show()
         self._copy_error.show()
 
@@ -266,6 +276,35 @@ class LoaderDialog(QDialog):
                 return
             clipboard = app.clipboard()
             clipboard.setText(self._error_text)
+        except Exception:
+            return
+
+    def set_cancel_callback(self, callback: Callable[[], None] | None) -> None:
+        """
+        Enable cooperative cancellation for the current loader task.
+
+        The callback runs on the UI thread and should request cancellation on
+        the worker (cooperative; the task must check the token and exit).
+        """
+        self._cancel_callback = callback
+        if callback is None:
+            self._cancel_button.hide()
+            return
+        self._cancel_button.setEnabled(True)
+        self._cancel_button.setText(self._cancel_text)
+        self._cancel_button.show()
+
+    def _on_cancel_clicked(self) -> None:
+        if self._cancel_callback is None:
+            return
+        self._cancel_button.setEnabled(False)
+        self._cancel_button.setText("Cancelling…")
+        try:
+            self.append_message("Cancelling…")
+        except Exception:
+            pass
+        try:
+            self._cancel_callback()
         except Exception:
             return
 

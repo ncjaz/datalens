@@ -10,15 +10,30 @@ The task uses this context to:
 
 - Emit log messages back to the UI and logger
 - Optionally report progress (for future loader dialog extensions)
+- Cooperatively detect cancellation (optional)
 
 The context is intentionally minimal. It provides strictly one-way communication
 from the worker thread back to the UI thread, without exposing any Qt widgets,
 app state, or unsafe references.
+
+Cancellation is cooperative: the UI may request cancel, but tasks must
+periodically check the token and stop themselves.
 """
 
 from __future__ import annotations
 
 from typing import Callable
+
+
+class LoaderCancelled(Exception):
+    """
+    Raised by loader tasks to indicate cooperative cancellation.
+
+    Notes:
+    - This is not a "failure" (it should not show error UX).
+    - Cancellation is cooperative: tasks must check ``ctx.is_cancel_requested()``
+      (or call ``ctx.raise_if_cancelled()``) and then exit.
+    """
 
 
 class LoaderContext:
@@ -42,9 +57,11 @@ class LoaderContext:
         self,
         send_message: Callable[[str], None],
         send_progress: Callable[[float], None] | None = None,
+        is_cancel_requested: Callable[[], bool] | None = None,
     ) -> None:
         self._send_message = send_message
         self._send_progress = send_progress
+        self._is_cancel_requested = is_cancel_requested
 
     # ------------------------------------------------------------------ #
     # Logging
@@ -84,3 +101,29 @@ class LoaderContext:
         """
         if self._send_progress is not None:
             self._send_progress(value)
+
+    # ------------------------------------------------------------------ #
+    # Cooperative cancellation (optional)
+    # ------------------------------------------------------------------ #
+
+    def is_cancel_requested(self) -> bool:
+        """
+        Return True if the user has requested cancellation.
+
+        Cancellation is cooperative: tasks must check this and stop themselves.
+        """
+        if self._is_cancel_requested is None:
+            return False
+        try:
+            return bool(self._is_cancel_requested())
+        except Exception:
+            return False
+
+    def raise_if_cancelled(self) -> None:
+        """
+        Convenience helper for cancellable tasks.
+
+        Raises :class:`LoaderCancelled` if cancellation has been requested.
+        """
+        if self.is_cancel_requested():
+            raise LoaderCancelled()

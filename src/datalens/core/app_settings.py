@@ -6,9 +6,9 @@ from pathlib import Path
 from typing import Any
 
 from datalens.core.logging import get_logger
-from datalens.domain.settings import AppSettings
+from datalens.domain.system.settings import AppSettings
 from datalens.domain.plugin import PluginId
-from datalens.domain.user_profile import UserProfile
+from datalens.domain.system.user_profile import UserProfile
 from datalens.domain.ui.theme import ThemeOpacitySettings
 
 
@@ -32,6 +32,15 @@ def _settings_from_dict(data: dict[str, Any]) -> AppSettings:
     welcome_splitter_state_b64 = data.get("welcome_splitter_state_b64")
     if not isinstance(welcome_splitter_state_b64, str):
         welcome_splitter_state_b64 = None
+
+    user_data_dir_raw = data.get("user_data_dir")
+    if isinstance(user_data_dir_raw, str) and user_data_dir_raw.strip():
+        try:
+            user_data_dir = Path(user_data_dir_raw)
+        except Exception:
+            user_data_dir = None
+    else:
+        user_data_dir = None
 
     enabled_plugins_raw = data.get("enabled_plugins", [])
     enabled_plugins: frozenset[PluginId] = frozenset(
@@ -73,6 +82,7 @@ def _settings_from_dict(data: dict[str, Any]) -> AppSettings:
         last_project_root=last_project_root,
         recent_projects=tuple(recent_projects),
         welcome_splitter_state_b64=welcome_splitter_state_b64,
+        user_data_dir=user_data_dir,
         enabled_plugins=enabled_plugins,
         plugin_settings=plugin_settings,
         theme_name=theme_name,
@@ -86,6 +96,7 @@ def _settings_to_dict(settings: AppSettings) -> dict[str, Any]:
     payload["last_project_root"] = str(settings.last_project_root) if settings.last_project_root else None
     payload["recent_projects"] = [str(p) for p in settings.recent_projects]
     payload["welcome_splitter_state_b64"] = settings.welcome_splitter_state_b64
+    payload["user_data_dir"] = str(settings.user_data_dir) if settings.user_data_dir else None
     payload["enabled_plugins"] = list(settings.enabled_plugins)
     payload["theme_opacity"] = asdict(settings.theme_opacity)
     payload["user_profile"] = asdict(settings.user_profile) if settings.user_profile else None

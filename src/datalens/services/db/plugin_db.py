@@ -4,7 +4,7 @@ from concurrent.futures import Future
 from dataclasses import dataclass
 
 from datalens.domain.plugin import PluginId
-from datalens.domain.plugin_meta import PluginMeta
+from datalens.domain.plugin.meta import PluginMeta
 from datalens.services.db.project_db import ProjectDb
 
 
@@ -24,11 +24,27 @@ class PluginDb:
     def kv_get(self, key: str) -> Future[object | None]:
         return self.project_db.kv_get(self.plugin_id, key)
 
+    def kv_get_for(self, plugin_id: PluginId, key: str) -> Future[object | None]:
+        """
+        Read another plugin's KV value (cross-plugin read).
+
+        Note: write access remains scoped to `self.plugin_id` via `kv_set`.
+        """
+        return self.project_db.kv_get(plugin_id, key)
+
     def kv_set(self, key: str, value: object) -> Future[None]:
         return self.project_db.kv_set(self.plugin_id, key, value)
 
     def plugin_meta_get(self) -> Future[PluginMeta | None]:
         return self.project_db.plugin_meta_get(self.plugin_id)
+
+    def plugin_meta_get_for(self, plugin_id: PluginId) -> Future[PluginMeta | None]:
+        """
+        Read another plugin's metadata row (cross-plugin read).
+
+        Note: write access remains scoped to `self.plugin_id` via `plugin_meta_set`.
+        """
+        return self.project_db.plugin_meta_get(plugin_id)
 
     def plugin_meta_set(self, *, plugin_version: str, schema_version: int) -> Future[None]:
         return self.project_db.plugin_meta_set(
@@ -36,4 +52,3 @@ class PluginDb:
             plugin_version=plugin_version,
             schema_version=schema_version,
         )
-

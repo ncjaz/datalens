@@ -9,7 +9,7 @@
   "features": [
     {
       "id": "workspace",
-      "kind": "tab",
+      "kind": "workspace",
       "entrypoint": "datalens.plugins.train.train:TrainWorkspace",
       "display_name": "Train",
       "description": "Configure and run training jobs."

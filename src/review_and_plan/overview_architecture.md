@@ -10,6 +10,8 @@ It complements:
 - `datalens/src/review_and_plan/project_service.md` (project lifecycle plan/status)
 - `datalens/src/review_and_plan/logging_system.md` (logging plan/status)
 - `datalens/src/review_and_plan/event_hub.md` (EventHub plan/status)
+- `datalens/src/review_and_plan/state_registry_and_inspector.md` (state registry + inspector plan/status)
+- `datalens/src/review_and_plan/shortcuts_system.md` (keyboard + mouse shortcuts plan/status)
 
 If you're looking for the older, very detailed architecture write-ups/diagrams (600+ lines), those still exist but are only partially accurate for V2:
 - `datalens/src/review_and_plan/ARCHITECTURE_SUMMARY.md` (legacy, comprehensive narrative)
@@ -134,6 +136,8 @@ Use this section as the quick "what's left" checklist. Each item should point to
 | Project service | Project open/close/switch orchestration + failure UX | `datalens/src/review_and_plan/project_service.md` | In progress (hardening planned) |
 | Logging system | Non-blocking logging + UI slow-event profiling | `datalens/src/review_and_plan/logging_system.md` | In progress |
 | Event hub | App-wide semantic events (queued UI-thread delivery; publish non-blocking) | `datalens/src/review_and_plan/event_hub.md` | Planned |
+| State registry + inspector | Queryable core/plugin state + Help → States inspector | `datalens/src/review_and_plan/state_registry_and_inspector.md` | Planned |
+| Shortcuts system | Keyboard + mouse shortcut registry/dispatcher (window-focused, plugin pages) | `datalens/src/review_and_plan/shortcuts_system.md` | Planned |
 
 ### 1) Real feature implementations (beyond placeholders)
 - Build real workspace UIs for shipped plugins (annotation/review/meval/train/capture).
@@ -148,6 +152,13 @@ These are described in earlier planning docs but do not exist in V2 code today:
 - Command bus
 
 When implemented, they should follow the plugin safety rules in `datalens/src/AGENTS.md` (no plugin-to-plugin imports; stable contracts).
+
+Plugin integration direction (intent):
+- Plugins must not import each other or reach into each other's runtime objects.
+- Cross-plugin integration should go via core-owned systems:
+  - capability registry (providers)
+  - command/request APIs (ask another capability to do work)
+  - events (notify others that something happened)
 
 ### 3) Project/open UX hardening
 - Finish the "project selection / open project" UI flows (welcome screen currently stores paths but the UI is still simplified).

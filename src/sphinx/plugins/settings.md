@@ -3,7 +3,7 @@
 DataLens persists lightweight app + plugin settings in a per-user JSON file:
 
 - Location is `datalens.infra.paths.settings_json_path()`
-- Schema is `datalens.domain.settings.AppSettings`
+- Schema is `datalens.domain.system.settings.AppSettings`
 - Per-plugin settings live under `AppSettings.plugin_settings` keyed by plugin ID
 
 ## Built-in app fields

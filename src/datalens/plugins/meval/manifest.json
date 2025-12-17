@@ -9,7 +9,7 @@
   "features": [
     {
       "id": "workspace",
-      "kind": "tab",
+      "kind": "workspace",
       "entrypoint": "datalens.plugins.meval.meval:MEvalWorkspace",
       "display_name": "MEval",
       "description": "Evaluate models and metrics."

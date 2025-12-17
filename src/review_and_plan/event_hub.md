@@ -21,6 +21,7 @@ This plan assumes the "best choice" decision:
 - Replacing Qt signals for local widget wiring (signals remain the right tool for intra-widget interactions).
 - Streaming large/high-rate payloads (e.g. video frames) through the hub. Use dedicated streaming/buffering/IPC primitives for that.
 - Making every subscriber run "in parallel by default". That is unsafe for Qt and creates nondeterministic race conditions.
+- Cross-plugin imports. Plugins should integrate via core-owned systems (events, capabilities, commands/requests), not by importing each other's code.
 
 ## Design (high-level)
 

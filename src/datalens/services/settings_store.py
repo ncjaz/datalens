@@ -8,7 +8,7 @@ import time
 from typing import Any, Optional
 
 from datalens.core.app_settings import load_app_settings, save_app_settings
-from datalens.domain.settings import AppSettings
+from datalens.domain.system.settings import AppSettings
 from datalens.infra.paths import settings_json_path
 
 

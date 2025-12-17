@@ -3,7 +3,7 @@ from __future__ import annotations
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QLineEdit, QSizePolicy, QToolButton, QVBoxLayout, QFrame, QWidget
 
-from datalens.domain.user_profile import UserProfile
+from datalens.domain.system.user_profile import UserProfile
 from datalens.ui.theme import AppTheme
 from datalens.ui.widgets.core.buttons import ButtonVariant, DatalensButton
 from datalens.ui.widgets.icons.settings_icon import settings_icon
@@ -131,4 +131,3 @@ class ProfileEditDialog(QDialog):
             name=self._name_edit.text(),
             email=self._email_edit.text(),
         ).normalized()
-

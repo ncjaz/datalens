@@ -27,7 +27,7 @@ Use this structure when deciding where new files belong:
 - `datalens/plugins/` – **shipped plugins**
   - Discovered via `manifest.json`; may be grouped into subfolders (“packs”).
 - `sphinx/` – **V2 documentation site** (Sphinx + MyST)
-- `review_and_plan/` - **V2 planning/specs** (design notes, implementation plans)
+- `review_and_plan/` – **V2 planning/specs** (design notes, implementation plans)
 
 ## UI/UX rules
 
@@ -120,6 +120,16 @@ Design intent:
 - `publish()` is non-blocking (enqueue + return)
 - subscriber callbacks are delivered queued on the UI thread by default
 - heavy work must be explicitly offloaded to background systems (threadpool/loader/IoWriter) and results marshaled back to UI
+
+## Planned: Shortcuts system (keyboard + mouse)
+
+The shortcuts system plan (not implemented yet) lives at:
+- `datalens/src/review_and_plan/shortcuts_system.md`
+
+Design intent:
+- unified shortcut registry (per-plugin pages, conflict checking per plugin/scope)
+- window-focused dispatch (focused top-level window only; supports plugin popouts)
+- mouse + wheel chords supported via Qt event filtering (keyboard still uses Qt-native `QKeySequence` parsing where possible)
 
 ## Planned: Project service hardening
 

@@ -61,6 +61,64 @@ For background, non-blocking saves, prefer the shared persistence queue pattern
 used in V1 (merge → snapshot → async write) and keep the domain payloads
 immutable at the snapshot boundary.
 
+## Loader runner (long tasks + cancellation)
+
+Use the loader runner for any long-running operation that needs UX feedback
+without blocking the UI thread.
+
+- API: `datalens.infra.background.loader_runner.run_with_loader`
+- Task signature: `def task(ctx: LoaderContext) -> Any`
+
+### Cooperative cancellation
+
+The loader supports cancellation, but it is **cooperative**:
+
+- The UI can request cancel (shows a Cancel button).
+- The running task must periodically check the token and stop itself.
+
+Only enable the Cancel button when the task is actually cancellable (i.e. it
+checks `ctx.is_cancel_requested()` / `ctx.raise_if_cancelled()` in loops). If
+you don’t, the UI will show “Cancelling…” but nothing will happen until the
+task naturally returns.
+
+Enable the Cancel button:
+
+```python
+run_with_loader(
+    parent=self,
+    title="Discovering files…",
+    task=discover_task,
+    on_result=on_done,
+    on_error=on_error,
+    on_cancelled=lambda: log.info("Discovery cancelled"),
+    dialog_options={
+        # Only enable this if your task cooperatively checks the cancellation token.
+        "cancelable": True,
+        # Optional: attach attribution for easier debugging in logs.
+        "log_context": {"operation": "file_discovery", "plugin_id": "capture"},
+    },
+)
+```
+
+With the above `log_context`, loader logs include `plugin=...` and `op=...` so you
+can trace which system triggered a loader when debugging.
+
+Write cancellable tasks like:
+
+```python
+def discover_task(ctx: LoaderContext) -> list[Path]:
+    results: list[Path] = []
+    for root, _, files in os.walk(project_root):
+        ctx.raise_if_cancelled()
+        for name in files:
+            ctx.raise_if_cancelled()
+            results.append(Path(root) / name)
+    return results
+```
+
+If a task is blocked inside a single long call, it cannot be preempted; cancel
+will only take effect once control returns to Python.
+
 ## Theming + palette
 
 V2 follows V1’s palette-driven “two tone” surfaces:
@@ -76,7 +134,7 @@ The entrypoint is `datalens.ui.theme.app_theme.AppTheme.apply_to(QApplication)`
 
 V2 persists lightweight app/plugin settings in `settings.json` (per user).
 
-- Schema: `datalens.domain.settings.AppSettings`
+- Schema: `datalens.domain.system.settings.AppSettings`
 - IO helpers: `datalens.services.settings_store.SettingsStore`
 - Coalesced background writes: `datalens.services.settings_store.DebouncedSettingsWriter`
 

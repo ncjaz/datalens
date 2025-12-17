@@ -695,9 +695,9 @@ flowchart LR
         BUS[Command Bus<br/>Request/response]
     end
 
-    subgraph Plugins["Plugins (Tabs/Services)"]
-        CAP[Capture plugin/tab<br/>Webcam provider]
-        EVAL[Eval plugin/tab<br/>Consumer]
+    subgraph Plugins["Plugins (Workspaces/Services)"]
+        CAP[Capture plugin/workspace<br/>Webcam provider]
+        EVAL[Eval plugin/workspace<br/>Consumer]
     end
 
     CAP -->|register LiveVideoFeedProvider| REG

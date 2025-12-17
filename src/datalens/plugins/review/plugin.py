@@ -13,6 +13,10 @@ class ReviewPlugin(BasePlugin):
         # TODO(v2): Wire plugin feature registration (workspace) and any app-scoped services.
         return None
 
+    def on_unload(self, ctx: PluginAppContext) -> None:
+        # TODO(v2): Disconnect UI/actions and stop any app-scoped services.
+        return None
+
     def on_project_opened(self, ctx: PluginProjectContext) -> PluginFutureResult:
         # TODO(v2): Restore review UI state (filters/sort) from `ctx.db.kv_get`.
         return None

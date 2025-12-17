@@ -21,9 +21,9 @@ imports.
 
 ```mermaid
 sequenceDiagram
-    participant Eval as Eval plugin/tab
+    participant Eval as Eval plugin/workspace
     participant Bus as Command Bus
-    participant Capture as Capture plugin/tab
+    participant Capture as Capture plugin/workspace
 
     Eval->>Bus: StartLiveStream(settings)
     Bus->>Capture: StartLiveStream(settings)

@@ -14,7 +14,7 @@ from typing import Any, Protocol, TypeVar
 
 from datalens.core.logging import get_logger
 from datalens.domain.plugin import PluginId
-from datalens.domain.plugin_meta import PluginMeta
+from datalens.domain.plugin.meta import PluginMeta
 from datalens.infra.project_paths import project_db_path
 from datalens.services.db.gateway import open_connection
 
@@ -89,6 +89,7 @@ class CoreDbOwnershipError(RuntimeError):
 
 
 _CORE_TABLES: set[str] = {"app_meta", "plugin_kv", "plugin_meta"}
+_CORE_DML_ALLOWED: set[str] = {"app_meta"}
 _SQL_WS = re.compile(r"\s+")
 _SQL_QUOTED = re.compile(r'^[`"\[]?(.*?)[`"\]]?$')
 
@@ -126,44 +127,62 @@ def _assert_core_only_sql(statement: str) -> None:
     if s_upper.startswith(("PRAGMA ", "BEGIN", "COMMIT", "ROLLBACK", "SAVEPOINT", "RELEASE")):
         return
 
+    if s_upper.startswith(("ATTACH ", "DETACH ", "VACUUM", "REINDEX", "ANALYZE")):
+        raise CoreDbOwnershipError(f"Core-only DB operation attempted: {s.strip()}")
+
     # Disallow destructive operations in core-only mode (core migrations should be additive).
     if s_upper.startswith("DROP "):
         raise CoreDbOwnershipError(f"Core-only DB operation attempted: {s.strip()}")
 
-    candidates: list[str] = []
+    candidates: list[tuple[str, str]] = []
 
+    op = "INSERT"
     table = _extract_table_after(r"\bINSERT\s+INTO\s+([^\s(]+)", s_upper)
     if table:
-        candidates.append(table)
+        candidates.append((op, table))
 
+    op = "REPLACE"
+    table = _extract_table_after(r"\bREPLACE\s+INTO\s+([^\s(]+)", s_upper)
+    if table:
+        candidates.append((op, table))
+
+    op = "UPDATE"
     table = _extract_table_after(r"\bUPDATE\s+([^\s]+)", s_upper)
     if table:
-        candidates.append(table)
+        candidates.append((op, table))
 
+    op = "DELETE"
     table = _extract_table_after(r"\bDELETE\s+FROM\s+([^\s]+)", s_upper)
     if table:
-        candidates.append(table)
+        candidates.append((op, table))
 
+    op = "ALTER TABLE"
     table = _extract_table_after(r"\bALTER\s+TABLE\s+([^\s]+)", s_upper)
     if table:
-        candidates.append(table)
+        candidates.append((op, table))
 
+    op = "CREATE TABLE"
     table = _extract_table_after(r"\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([^\s(]+)", s_upper)
     if table:
-        candidates.append(table)
+        candidates.append((op, table))
 
     if "CREATE INDEX" in s_upper or "CREATE UNIQUE INDEX" in s_upper:
+        op = "CREATE INDEX"
         table = _extract_table_after(r"\bON\s+([^\s(]+)", s_upper)
         if table:
-            candidates.append(table)
+            candidates.append((op, table))
 
-    for raw in candidates:
+    for op, raw in candidates:
         ident = _normalize_ident(raw)
         if ident.startswith("sqlite_"):
             continue
         if ident not in _CORE_TABLES:
             raise CoreDbOwnershipError(
                 f"Core-only DB operation attempted to modify non-core table {ident!r}: {s.strip()}"
+            )
+        if op in {"INSERT", "UPDATE", "DELETE", "REPLACE"} and ident not in _CORE_DML_ALLOWED:
+            raise CoreDbOwnershipError(
+                f"Core-only DB operation attempted to mutate plugin-owned rows in {ident!r}: {s.strip()}"
             )
 
 

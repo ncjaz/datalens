@@ -3,6 +3,11 @@
 The plugin runtime owns plugin lifetimes and keeps the UI consistent when
 features are enabled/disabled.
 
+Implementation:
+
+- Runtime coordinator: `datalens.services.plugins.runtime.host.PluginHost`
+- Hook interfaces: `datalens.services.plugins.runtime.contracts`
+
 ## Phases
 
 1. **Discover**: locate plugin definitions (shipped + external).

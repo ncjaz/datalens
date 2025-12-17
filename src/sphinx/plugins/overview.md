@@ -24,7 +24,7 @@ A folder is treated as a plugin root if it contains a `manifest.json`.
 
 Common plugin feature kinds:
 
-- **Tab/workspace**: a UI surface (e.g., Capture, Review, Eval).
+- **Workspace**: a user-facing UI surface (e.g., Capture, Review, MEval).
 - **Service**: background logic (indexing, syncing, watchers).
 - **Data source**: a storage backend or remote API provider.
 - **Model**: model families/variants and runtime wiring.
