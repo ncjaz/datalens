@@ -10,6 +10,26 @@ notifications) that multiple tabs/services may need to react to.
 - Good fits: “active project changed”, “media discovered”, “annotations changed”.
 - Avoid: high-rate payloads like video frames.
 
+## Runtime context (AppContext)
+
+V2 uses a small runtime context object to hold process resources and shared services:
+
+- `AppContext` (runtime singleton): `datalens.core.context.AppContext`
+- `ProjectContext` (per-open-project): `datalens.core.context.ProjectContext`
+
+### Singleton access
+
+Within a running Qt application, there must be exactly one `AppContext` stored on the
+`DatalensApplication` instance.
+
+- Bootstrap: `datalens.core.context.create_app_context(theme)` is a factory and raises if an
+  `AppContext` already exists on the current `QApplication`.
+- Access: `datalens.core.context.get_app_context()` returns the singleton from `QApplication.instance()`.
+
+Best practice:
+- UI code may call `get_app_context()` for convenience.
+- Service code should still accept/receive `app_ctx` explicitly (keeps lifetimes and testing clearer).
+
 ## Plugin interoperability
 
 V2 uses two complementary mechanisms (documented in more detail under
@@ -119,11 +139,29 @@ def discover_task(ctx: LoaderContext) -> list[Path]:
 If a task is blocked inside a single long call, it cannot be preempted; cancel
 will only take effect once control returns to Python.
 
+### Progress messages via logging
+
+Within a loader task (or any function running under that loader), you can
+publish user-facing status lines by logging with a progress flag:
+
+```python
+log.info("Indexing images…", extra={"progress": True})
+```
+
+When a loader dialog is active, this message is forwarded to the dialog and
+also written to the normal log output. The loader dialog will show it as:
+
+- `<plugin_id>: Indexing images…` (when `plugin_id` is available in log context)
+- otherwise the logger name is used as a best-effort prefix.
+
+This is intentionally opt-in. Do not mark high-rate logs as progress, or it
+will spam the dialog.
+
 ## Theming + palette
 
 V2 follows V1’s palette-driven “two tone” surfaces:
 
-- Window backgrounds derive from `theme.secondary_color` (`QPalette.Window`)
+- Window backgrounds derive from `theme.background_color` (`QPalette.Window`)
 - Viewports (lists/trees/inputs) derive from `QPalette.Base` / `AlternateBase`
 - Selection highlight derives from `theme.tertiary_color` (`QPalette.Highlight`)
 

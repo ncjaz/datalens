@@ -65,7 +65,12 @@ class AppTheme(QObject):
         return self._settings.primary_color
 
     @property
+    def background_color(self) -> str:
+        return self._settings.background_color
+
+    @property
     def secondary_color(self) -> str:
+        """Secondary brand accent (not used for window surfaces)."""
         return self._settings.secondary_color
 
     @property
@@ -92,6 +97,30 @@ class AppTheme(QObject):
     def warning_color(self) -> str:
         return self._settings.accent_warning
 
+    @property
+    def primary_border(self) -> str:
+        return self._settings.primary_border
+
+    @property
+    def secondary_border(self) -> str:
+        return self._settings.secondary_border
+
+    @property
+    def tertiary_border(self) -> str:
+        return self._settings.tertiary_border
+
+    @property
+    def confirm_border(self) -> str:
+        return self._settings.accent_confirm_border
+
+    @property
+    def cancel_border(self) -> str:
+        return self._settings.accent_cancel_border
+
+    @property
+    def warning_border(self) -> str:
+        return self._settings.accent_warning_border
+
     def qcolor(self, hex_value: str) -> QColor:
         return QColor(hex_value)
 
@@ -100,8 +129,8 @@ class AppTheme(QObject):
         return QColor(self.primary_color)
 
     @property
-    def secondary(self) -> QColor:
-        return QColor(self.secondary_color)
+    def background(self) -> QColor:
+        return QColor(self.background_color)
 
     @property
     def tertiary(self) -> QColor:
@@ -153,9 +182,9 @@ class AppTheme(QObject):
         Apply this theme to a QApplication via the global palette.
 
         This mirrors the V1 approach:
-        - Window surfaces derive from ``secondary_color`` (dark UI background).
+        - Window surfaces derive from ``background_color`` (dark UI background).
         - Viewports (lists/trees/inputs) use slightly different roles (Base /
-          AlternateBase) derived from the same secondary to create the "two
+          AlternateBase) derived from the same background to create the "two
           shade" look in tabs like Annotation.
         - Selection highlight uses ``primary_color``.
         """
@@ -165,13 +194,26 @@ class AppTheme(QObject):
         app.setStyle("Fusion")
 
         palette = QPalette()
-        secondary = QColor(self.secondary_color)
+        background = QColor(self.background_color)
         text = QColor(self.text_color)
 
-        palette.setColor(QPalette.Window, secondary)
-        palette.setColor(QPalette.AlternateBase, lighten_color(secondary, 1.10))
-        palette.setColor(QPalette.Base, darken_color(secondary, 0.90))
-        palette.setColor(QPalette.Button, lighten_color(secondary, 1.05))
+        palette.setColor(QPalette.Window, background)
+
+        base = QColor(self._settings.surface_base) if self._settings.surface_base else darken_color(background, 0.90)
+        alt = (
+            QColor(self._settings.surface_alt)
+            if self._settings.surface_alt
+            else lighten_color(background, 1.10)
+        )
+        button = (
+            QColor(self._settings.surface_button)
+            if self._settings.surface_button
+            else lighten_color(background, 1.05)
+        )
+
+        palette.setColor(QPalette.Base, base)
+        palette.setColor(QPalette.AlternateBase, alt)
+        palette.setColor(QPalette.Button, button)
 
         palette.setColor(QPalette.WindowText, text)
         palette.setColor(QPalette.Text, text)
@@ -183,7 +225,7 @@ class AppTheme(QObject):
             QColor(contrast_text_color(bg_hex=self.primary_color, light_text=self.text_color, dark_text="#000000")),
         )
 
-        palette.setColor(QPalette.ToolTipBase, lighten_color(secondary, 1.20))
+        palette.setColor(QPalette.ToolTipBase, lighten_color(background, 1.20))
         palette.setColor(QPalette.ToolTipText, text)
         palette.setColor(QPalette.Link, QColor(self.primary_color))
         palette.setColor(QPalette.BrightText, QColor("#FF5252"))
@@ -213,7 +255,7 @@ class AppTheme(QObject):
 
     def subtle_fill(self, hex_color: str | None = None, *, alpha: float | None = None) -> str:
         return self.with_alpha_hex(
-            hex_color or self.secondary_color,
+            hex_color or self.background_color,
             self.opacity.subtle_fill if alpha is None else alpha,
         )
 
@@ -228,12 +270,12 @@ class AppTheme(QObject):
 
     def disabled_fill_color(self, hex_color: str | None = None, *, alpha: float | None = None) -> str:
         return self.with_alpha_hex(
-            hex_color or self.secondary_color,
+            hex_color or self.background_color,
             self.opacity.disabled_fill if alpha is None else alpha,
         )
 
     def disabled_border_color(self, hex_color: str | None = None, *, alpha: float | None = None) -> str:
         return self.with_alpha_hex(
-            hex_color or self.secondary_color,
+            hex_color or self.background_color,
             self.opacity.disabled_border if alpha is None else alpha,
         )

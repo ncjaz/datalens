@@ -18,7 +18,7 @@ def annotation_toggle_icon(theme: AppTheme, *, active: bool, enabled: bool = Tru
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.Antialiasing, True)
 
-    base_hex = theme.primary_color if enabled else theme.secondary_color
+    base_hex = theme.primary_color if enabled else theme.background_color
     base_color = theme.qcolor_with_alpha(base_hex, 0.35 if active else 0.22)
     painter.setPen(Qt.NoPen)
     painter.setBrush(base_color)
@@ -46,4 +46,3 @@ def annotation_toggle_icon(theme: AppTheme, *, active: bool, enabled: bool = Tru
 
 
 __all__ = ["annotation_toggle_icon"]
-

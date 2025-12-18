@@ -17,6 +17,13 @@ from concurrent.futures import Future
 from typing import Any
 
 from datalens.core.context import AppContext, ProjectContext, ProjectFlushHook
+from datalens.core.events import (
+    EventHub,
+    FocusedWorkspaceChanged,
+    PluginDisabled,
+    PluginEnabled,
+    PluginsEnabledChanged,
+)
 from datalens.core.logging import bind_log_context, get_logger
 from datalens.domain.plugin import PluginId
 from datalens.services.db.plugin_db import PluginDb
@@ -75,6 +82,13 @@ class PluginHost:
         if to_disable:
             futures.extend(self.disable(app_ctx=app_ctx, plugin_ids=to_disable, project=active_project))
         self.enable(app_ctx=app_ctx, plugin_ids=desired)
+        try:
+            app_ctx.events.publish(
+                EventHub.PLUGINS_ENABLED_CHANGED,
+                PluginsEnabledChanged(enabled_plugin_ids=self.enabled_plugins(), timestamp_s=time.time()),
+            )
+        except Exception:
+            self._log.debug("Failed to publish PluginsEnabledChanged (best-effort)", exc_info=True)
         return futures
 
     def enable(self, *, app_ctx: AppContext, plugin_ids: set[PluginId]) -> None:
@@ -103,7 +117,25 @@ class PluginHost:
                     fn=getattr(runtime.instance, "on_load", None),
                     best_effort=False,
                 )
+
+            # Optional: allow plugins to declare keyboard/mouse shortcuts.
+            # This is best-effort; failure should not prevent the plugin from loading.
+            with bind_log_context(plugin_id=str(plugin_id), plugin_phase="enable", hook="register_shortcuts"):
+                dispatcher.call_app_hook(
+                    log=self._log,
+                    operation="plugin_register_shortcuts",
+                    hook="register_shortcuts",
+                    plugin_id=plugin_id,
+                    app_ctx=app_ctx,
+                    plugin_def=record.definition,
+                    fn=getattr(runtime.instance, "register_shortcuts", None),
+                    best_effort=True,
+                )
             self._enabled[plugin_id] = runtime
+            try:
+                app_ctx.events.publish(EventHub.PLUGIN_ENABLED, PluginEnabled(plugin_id=plugin_id, timestamp_s=time.time()))
+            except Exception:
+                self._log.debug("Failed to publish PluginEnabled (best-effort)", exc_info=True)
 
             # If the UI already selected this workspace before the plugin was enabled,
             # dispatch `on_focus` once the runtime becomes available.
@@ -156,6 +188,11 @@ class PluginHost:
             if self._focused_workspace == plugin_id:
                 self.set_focused_workspace(app_ctx=app_ctx, plugin_id=None)
 
+            try:
+                app_ctx.shortcuts.unregister_plugin(plugin_id)
+            except Exception:
+                self._log.debug("Failed to unregister plugin shortcuts (best-effort)", exc_info=True)
+
             if active_project is not None:
                 with bind_log_context(plugin_id=str(plugin_id), plugin_phase="project_close", hook="on_project_closing"):
                     ctx = PluginProjectContext(
@@ -187,6 +224,10 @@ class PluginHost:
                     fn=getattr(runtime.instance, "on_unload", None),
                     best_effort=True,
                 )
+            try:
+                app_ctx.events.publish(EventHub.PLUGIN_DISABLED, PluginDisabled(plugin_id=plugin_id, timestamp_s=time.time()))
+            except Exception:
+                self._log.debug("Failed to publish PluginDisabled (best-effort)", exc_info=True)
 
         return futures
 
@@ -244,6 +285,13 @@ class PluginHost:
 
         self._focused_workspace = new_id
         self._focused_workspace_hook_delivered = False
+        try:
+            app_ctx.events.publish(
+                EventHub.FOCUSED_WORKSPACE_CHANGED,
+                FocusedWorkspaceChanged(previous_plugin_id=old_id, current_plugin_id=new_id, timestamp_s=time.time()),
+            )
+        except Exception:
+            self._log.debug("Failed to publish FocusedWorkspaceChanged (best-effort)", exc_info=True)
 
         # Focus new.
         if new_id is not None:

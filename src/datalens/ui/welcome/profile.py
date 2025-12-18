@@ -48,7 +48,7 @@ class ProfileSummary(QFrame):
 
     def _apply_theme(self) -> None:
         border = self._theme.with_alpha_hex(self._theme.primary_color, 0.28)
-        background = self._theme.with_alpha_hex(self._theme.secondary_color, 0.32)
+        background = self._theme.with_alpha_hex(self._theme.background_color, 0.32)
         self.setStyleSheet(
             "QFrame#profileSummary {"
             f"background-color: {background};"
@@ -63,7 +63,7 @@ class ProfileSummary(QFrame):
         base = self._theme.with_alpha_hex(self._theme.primary_color, 0.18)
         hover = self._theme.with_alpha_hex(self._theme.primary_color, 0.30)
         pressed = self._theme.with_alpha_hex(self._theme.primary_color, 0.42)
-        disabled = self._theme.with_alpha_hex(self._theme.secondary_color, 0.25)
+        disabled = self._theme.with_alpha_hex(self._theme.background_color, 0.25)
         self._edit_button.setStyleSheet(
             "QToolButton {"
             f"background-color: {base};"

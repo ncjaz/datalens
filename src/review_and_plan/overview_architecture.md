@@ -1,6 +1,6 @@
 # DataLens V2 Architecture Overview (Implementation Guide)
 
-Last updated: 2025-12-15
+Last updated: 2025-12-17
 
 This document is a high-level architectural overview of **DataLens V2 as implemented today**, plus the **next planned work**.
 
@@ -135,9 +135,9 @@ Use this section as the quick "what's left" checklist. Each item should point to
 | Project DB + persistence | Non-blocking, plugin-safe project storage + flush semantics | `datalens/src/review_and_plan/project_db_and_persistence.md` | In progress (hardening ongoing) |
 | Project service | Project open/close/switch orchestration + failure UX | `datalens/src/review_and_plan/project_service.md` | In progress (hardening planned) |
 | Logging system | Non-blocking logging + UI slow-event profiling | `datalens/src/review_and_plan/logging_system.md` | In progress |
-| Event hub | App-wide semantic events (queued UI-thread delivery; publish non-blocking) | `datalens/src/review_and_plan/event_hub.md` | Planned |
+| Event hub | App-wide semantic events (queued UI-thread delivery; publish non-blocking) | `datalens/src/review_and_plan/event_hub.md` | Implemented (MVP) |
 | State registry + inspector | Queryable core/plugin state + Help → States inspector | `datalens/src/review_and_plan/state_registry_and_inspector.md` | Planned |
-| Shortcuts system | Keyboard + mouse shortcut registry/dispatcher (window-focused, plugin pages) | `datalens/src/review_and_plan/shortcuts_system.md` | Planned |
+| Shortcuts system | Keyboard + mouse shortcut registry/dispatcher (window-focused, plugin pages) | `datalens/src/review_and_plan/shortcuts_system.md` | Implemented (MVP) |
 
 ### 1) Real feature implementations (beyond placeholders)
 - Build real workspace UIs for shipped plugins (annotation/review/meval/train/capture).
@@ -145,9 +145,9 @@ Use this section as the quick "what's left" checklist. Each item should point to
   - UI emits diffs -> merge/cache update -> snapshot -> background save -> flush on close.
   - Use `PersistenceQueue` + `ProjectDb`/`IoWriter` (depending on what becomes authoritative).
 
-### 2) Event-driven coordination systems (planned; not implemented yet)
-These are described in earlier planning docs but do not exist in V2 code today:
-- Event hub (`EventHub` / `EventChannel`)
+### 2) Event-driven coordination systems (in progress)
+These are described in earlier planning docs; some exist as MVP implementations, others are still planned:
+- Event hub (`EventHub`) is implemented (MVP), but richer patterns (channels, subscriptions, monitoring UI) are still planned.
 - Capability registry
 - Command bus
 

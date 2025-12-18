@@ -21,5 +21,22 @@ UI
    datalens.ui.widgets.core.styled
    datalens.ui.widgets.core.themed_widget
    datalens.ui.widgets.core.toggle
+   datalens.ui.widgets.dialogs.loader_dialog
    datalens.ui.widgets.icons.base_icon
+   datalens.ui.widgets.icons.annotation_toggle_icon
+   datalens.ui.widgets.icons.autodiscovery_icon
+   datalens.ui.widgets.icons.chevron_icon
+   datalens.ui.widgets.icons.eye_icon
+   datalens.ui.widgets.icons.lock_icon
+   datalens.ui.widgets.icons.settings_icon
+   datalens.ui.widgets.icons.animated.autodiscovery
    datalens.ui.widgets.icons.animated.spinner
+   datalens.ui.shortcuts.chords
+   datalens.ui.shortcuts.event_filter
+   datalens.ui.shortcuts.hold_toggle
+   datalens.ui.shortcuts.binding_editor
+   datalens.ui.shortcuts.gesture_router
+   datalens.ui.shortcuts.widget_dispatch
+   datalens.ui.shortcuts.core_shortcuts
+   datalens.ui.shortcuts.tooltips
+   datalens.ui.shortcuts.helpers

@@ -9,6 +9,7 @@
    .. autosummary::
    
       dataclass
+      replace
    
    .. rubric:: Classes
 
@@ -17,6 +18,7 @@
       Enum
       Path
       PluginDefinition
+      PluginDefinitionOverride
       PluginLocation
       PluginOrigin
       PluginRecord

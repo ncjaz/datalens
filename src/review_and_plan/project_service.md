@@ -100,7 +100,7 @@ Contract if we adopt this:
 4) Close DB resources.
 5) Set `AppContext.active_project = None`.
 6) Publish lifecycle events (planned EventHub):
-   - `ProjectClosing`, `ProjectClosed`, etc.
+   - `ProjectClosing` (with reason: `switch|user|shutdown|force|open_failed`), then `ProjectClosed`, etc.
 
 ## Threading & UI rules (non-negotiable)
 
@@ -156,6 +156,21 @@ The UI surface for this should live in UI code (dialog), but the policy and exce
 All failures must be visible in logs, and surfaced to the user via loader error UI.
 
 ## Tasks (ordered)
+
+Status (as of 2025-12-17):
+
+- [x] Consolidate lifecycle entrypoints (welcome + File menu + MRU/startup all go through `open_project_with_plugins(...)` via loader tasks).
+- [x] Orchestrated open/switch pipeline exists (staged loader messages + UI-first startup flow).
+- [x] Close/flush failure UX policy exists (warn/retry/cancel/force-close via loader UX).
+- [x] Plugin hook invocation is consistent via `open_project_with_plugins`.
+- [ ] Event publication via EventHub (planned).
+- [ ] Documentation alignment across planning docs (ongoing).
+
+Notes:
+
+- The non-hook project open helper was removed to prevent accidental bypass of plugin lifecycle:
+  - `datalens/src/datalens/services/project_service.py` now exposes `open_project_with_plugins(...)` as the canonical pipeline.
+- UI entrypoints call `MainWindow.open_project(...)` / `MainWindow.close_project(...)` which delegate into the loader-backed UX (`ProjectActionsController`).
 
 1) Consolidate lifecycle entrypoints
    - ensure all “Open/Switch/Close” UI actions call `ProjectService` (directly or via an orchestrator service).

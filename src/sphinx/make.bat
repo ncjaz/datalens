@@ -39,18 +39,36 @@ GOTO end
 RMDIR /S /Q "%BUILDDIR%" 2>NUL
 GOTO end
 
+:env_check
+ECHO.
+ECHO Docs build environment:
+ECHO   SPHINXBUILD=%SPHINXBUILD%
+ECHO   CONDA_DEFAULT_ENV=%CONDA_DEFAULT_ENV%
+ECHO   VIRTUAL_ENV=%VIRTUAL_ENV%
+ECHO.
+where python
+python -c "import os, sys; print('sys.executable=' + sys.executable); print('sys.prefix=' + sys.prefix)"
+ECHO.
+IF /I "%DATALENS_DOCS_NO_PROMPT%"=="1" GOTO :eof
+SET /P _="Press Enter to continue Sphinx build (Ctrl+C to abort)... "
+GOTO :eof
+
 :html_furo
+CALL :env_check
 SET SPHINX_THEME=furo
 %SPHINXBUILD% -b html %SPHINXOPTS% "%SOURCEDIR%" "%BUILDDIR%\html"
 GOTO end
 
 :html_pydata
+CALL :env_check
 SET SPHINX_THEME=pydata_sphinx_theme
 %SPHINXBUILD% -b html %SPHINXOPTS% "%SOURCEDIR%" "%BUILDDIR%\html-pydata"
 GOTO end
 
 :html_plugin
+CALL :env_check
 SET SPHINX_THEME=furo
+SET DATALENS_DOCS_INCLUDE_PLUGIN_DEV=1
 %SPHINXBUILD% -b html %SPHINXOPTS% -D root_doc=sphinx/plugin_dev/index "%SOURCEDIR%" "%BUILDDIR%\html-plugin"
 GOTO end
 

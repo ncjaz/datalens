@@ -111,9 +111,9 @@ For any new system (DB, streaming, plugin runtime, background pipelines):
   - **Performance constraints** (UI thread, throughput)
   - **Validation steps** (how we'll confirm it works)
 
-## Planned: Event hub
+## Event hub (implemented MVP)
 
-The EventHub plan (not implemented yet) lives at:
+The EventHub plan lives at:
 - `datalens/src/review_and_plan/event_hub.md`
 
 Design intent:
@@ -121,9 +121,9 @@ Design intent:
 - subscriber callbacks are delivered queued on the UI thread by default
 - heavy work must be explicitly offloaded to background systems (threadpool/loader/IoWriter) and results marshaled back to UI
 
-## Planned: Shortcuts system (keyboard + mouse)
+## Shortcuts system (implemented MVP)
 
-The shortcuts system plan (not implemented yet) lives at:
+The shortcuts system plan lives at:
 - `datalens/src/review_and_plan/shortcuts_system.md`
 
 Design intent:

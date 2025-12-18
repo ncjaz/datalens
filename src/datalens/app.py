@@ -83,6 +83,16 @@ def _startup_task(ctx: LoaderContext) -> object:
         plugin_discovery = discover_plugins(user_plugins_root_dir=Path(user_data_root) / "plugins")
     except Exception:
         plugin_discovery = discover_plugins()
+
+    try:
+        plugin_discovery.registry.apply_definition_overrides(getattr(settings, "plugin_overrides", {}) or {})
+    except Exception as exc:
+        log = get_logger(__name__)
+        log.warning(
+            "Failed to apply plugin metadata overrides (best-effort): %s",
+            exc,
+            extra={"operation": "discover_plugins", "phase": "overrides_error"},
+        )
     ctx.set_progress(0.60)
     ctx.log(f"Found {len(plugin_discovery.registry.all())} plugins.")
     if plugin_discovery.issues:
@@ -256,6 +266,12 @@ def main(argv: list[str] | None = None) -> int:
             app.exit(0)
             return
         updated = welcome.updated_settings()
+        try:
+            # Apply user shortcut overrides immediately so subsequent plugin enable/open flows
+            # use the latest bindings without requiring a restart.
+            app.app_context.shortcuts.apply_settings(updated)
+        except Exception:
+            log.debug("Failed to apply shortcut settings (best-effort)", exc_info=True)
         selected_root = None
         try:
             selected_root = welcome.selected_project_root()
@@ -292,6 +308,11 @@ def main(argv: list[str] | None = None) -> int:
 
             if isinstance(settings, AppSettings):
                 theme.set_opacity(settings.theme_opacity)
+                theme.set_settings(getattr(settings, "theme_settings", theme.settings))
+                try:
+                    app.app_context.shortcuts.apply_settings(settings)
+                except Exception:
+                    log.debug("Failed to apply shortcut settings on startup (best-effort)", exc_info=True)
 
                 if args.skip_welcome and settings.enabled_plugins:
                     show_main(

@@ -6,6 +6,14 @@ DataLens persists lightweight app + plugin settings in a per-user JSON file:
 - Schema is `datalens.domain.system.settings.AppSettings`
 - Per-plugin settings live under `AppSettings.plugin_settings` keyed by plugin ID
 
+DataLens also supports *metadata overrides* for discovered plugins (without
+editing plugin manifests on disk):
+
+- Stored in `AppSettings.plugin_overrides`
+- Used to override fields like author/description/group/nav label for UI/UX
+  purposes
+- Edited via `Plugins -> Manage Plugins…`
+
 ## Built-in app fields
 
 `AppSettings` also stores a few core app fields used by the welcome/startup UX:

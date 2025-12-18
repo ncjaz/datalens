@@ -21,7 +21,11 @@
    
       Any
       AppSettings
+      LoaderUiSettings
       Path
+      PluginDefinitionOverride
+      ShortcutOverrides
       ThemeOpacitySettings
+      ThemeSettings
       UserProfile
    

@@ -9,6 +9,7 @@
    .. autosummary::
    
       AppTheme
+      QTimer
       SpinnerLoader
       ThemedWidget
    

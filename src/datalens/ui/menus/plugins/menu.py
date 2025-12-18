@@ -12,5 +12,4 @@ def populate(menu: QMenu, *, controller: PluginsMenuController) -> None:
     menu.addSeparator()
 
     action = menu.addAction("Manage Plugins\u2026")
-    action.setEnabled(False)
     action.triggered.connect(lambda *_: controller.manage_plugins())

@@ -121,6 +121,24 @@ class BasePlugin(Protocol):
         """Called during project close before core persistence resources close."""
 
 
+class SupportsShortcuts(Protocol):
+    """
+    Optional plugin capability: declare shortcut pages/commands at enable time.
+
+    Implement `register_shortcuts` if your plugin wants to expose commands in
+    the Preferences -> Keyboard Shortcuts page.
+
+    Registration should be lightweight and must not block.
+    """
+
+    def register_shortcuts(self, ctx: PluginAppContext) -> None:
+        """
+        Called after `on_load` while enabling the plugin.
+
+        Plugins should register commands via `ctx.app.shortcuts.register_page(...)`.
+        """
+
+
 class NoopPlugin:
     """Fallback plugin runtime used when a plugin has no `plugin.py` entrypoint."""
 
@@ -269,5 +287,5 @@ __all__ = [
     "PluginFutureResult",
     "PluginProjectContext",
     "ProjectAwarePlugin",
+    "SupportsShortcuts",
 ]
-

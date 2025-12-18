@@ -8,6 +8,7 @@ Domain
    datalens.domain.projects
    datalens.domain.media
    datalens.domain.system.settings
+   datalens.domain.system.shortcuts
    datalens.domain.datasources
    datalens.domain.plugin
    datalens.domain.annotations.core

@@ -179,13 +179,13 @@ class WelcomeWindow(QDialog):
     def _apply_theme(self) -> None:
         t = self._theme
         border = t.with_alpha_hex(t.primary_color, 0.45)
-        panel_bg = t.with_alpha_hex(t.secondary_color, 0.55)
+        panel_bg = t.with_alpha_hex(t.background_color, 0.55)
         splitter_line = t.with_alpha_hex(t.text_color, 0.10)
         splitter_hover = t.with_alpha_hex(t.primary_color, 0.10)
         self.setStyleSheet(
             f"""
             QDialog {{
-                background-color: {t.secondary_color};
+                background-color: {t.background_color};
                 color: {t.text_color};
             }}
             QFrame#WelcomeProjectsPanel, QFrame#WelcomeWorkspacesPanel {{
@@ -194,14 +194,14 @@ class WelcomeWindow(QDialog):
                 border-radius: 14px;
             }}
             QLineEdit {{
-                background-color: {t.with_alpha_hex(t.secondary_color, 0.70)};
+                background-color: {t.with_alpha_hex(t.background_color, 0.70)};
                 border: 1px solid {border};
                 border-radius: 10px;
                 padding: 8px 10px;
                 color: {t.text_color};
             }}
             QListWidget {{
-                background-color: {t.with_alpha_hex(t.secondary_color, 0.55)};
+                background-color: {t.with_alpha_hex(t.background_color, 0.55)};
                 border: 1px solid {border};
                 border-radius: 10px;
                 padding: 2px;

@@ -14,9 +14,29 @@ log = get_logger(__name__)
 class QtPluginsMenuController(PluginsMenuController):
     def __init__(self, main_window: QMainWindow) -> None:
         self._main_window = main_window
+        self._manage_dialog = None
 
     def manage_plugins(self) -> None:
-        QMessageBox.information(self._main_window, "Plugins", "Plugin management UI is not implemented yet.")
+        if self._manage_dialog is not None:
+            self._manage_dialog.raise_()
+            self._manage_dialog.activateWindow()
+            return
+
+        try:
+            from datalens.ui.main_window import MainWindow
+
+            if isinstance(self._main_window, MainWindow):
+                plugins = self._main_window.plugin_records()
+            else:
+                plugins = getattr(self._main_window, "plugin_records", lambda: [])()
+        except Exception:
+            plugins = []
+
+        from datalens.ui.menus.plugins.manage_plugins.manage_plugins_dialog import ManagePluginsDialog
+
+        self._manage_dialog = ManagePluginsDialog(plugins=list(plugins), parent=self._main_window)
+        self._manage_dialog.finished.connect(lambda *_: setattr(self, "_manage_dialog", None))
+        self._manage_dialog.show()
 
     def create_new_plugin(self) -> None:
         from datalens.infra.background.loader_context import LoaderContext

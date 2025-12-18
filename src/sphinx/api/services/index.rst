@@ -8,3 +8,4 @@ Services
    background_io
    projects
    settings
+   shortcuts

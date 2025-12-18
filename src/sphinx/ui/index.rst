@@ -5,4 +5,5 @@ UI
    :maxdepth: 2
 
    menus
-
+   widgets
+   loader

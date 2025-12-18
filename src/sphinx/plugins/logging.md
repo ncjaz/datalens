@@ -54,6 +54,18 @@ def do_work() -> None:
     log.info("Hello from my plugin")
 ```
 
+## Loader dialog progress integration
+
+If your code runs under the loader dialog, you can emit user-facing status lines without needing a `LoaderContext`:
+
+```python
+log.progress("Indexing images…")
+```
+
+This is still a normal log record, but it is also mirrored into the active loader dialog (best-effort).
+
+See :doc:`../ui/loader` for details and the user-configurable loader mirroring preferences.
+
 ## When logs are saved (async pipeline)
 
 Logging writes are asynchronous:

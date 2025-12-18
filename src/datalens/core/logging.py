@@ -35,7 +35,7 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 from uuid import uuid4
 
 from datalens.infra.paths import datalens_user_data_dir
@@ -44,6 +44,22 @@ from datalens.infra.paths import datalens_user_data_dir
 _LOG_CONTEXT: contextvars.ContextVar[dict[str, Any]] = contextvars.ContextVar(
     "datalens_log_context",
     default={},
+)
+
+@dataclass(frozen=True, slots=True)
+class LoaderDialogSinkPolicy:
+    show_log_progress: bool = True
+    show_log_info: bool = False
+    show_log_warning: bool = False
+    show_log_error: bool = False
+    show_log_critical: bool = False
+
+
+_LOADER_DIALOG_SINK: contextvars.ContextVar[
+    tuple[Callable[[str, float | None], None], LoaderDialogSinkPolicy] | None
+] = contextvars.ContextVar(
+    "datalens_loader_dialog_sink",
+    default=None,
 )
 
 
@@ -178,6 +194,63 @@ def _enrich_record(record: logging.LogRecord) -> None:
         if hasattr(record, key):
             continue
         setattr(record, key, value)
+
+    # Optional: forward "progress" logs to the active loader dialog (if any).
+    #
+    # This is best-effort and must never raise or block. It runs on the caller
+    # thread, which is important because the loader sink is stored in contextvars
+    # and propagates to worker threads via `contextvars.copy_context()`.
+    try:
+        sink_tuple = _LOADER_DIALOG_SINK.get()
+        if not sink_tuple:
+            return
+        sink, policy = sink_tuple
+        if not callable(sink):
+            return
+
+        is_progress = bool(getattr(record, "progress", False) or getattr(record, "ui_progress", False))
+        allowed = False
+        if is_progress:
+            allowed = bool(policy.show_log_progress)
+        else:
+            lvl = int(getattr(record, "levelno", logging.INFO))
+            if lvl >= logging.CRITICAL:
+                allowed = bool(policy.show_log_critical)
+            elif lvl >= logging.ERROR:
+                allowed = bool(policy.show_log_error)
+            elif lvl >= logging.WARNING:
+                allowed = bool(policy.show_log_warning)
+            elif lvl >= logging.INFO:
+                allowed = bool(policy.show_log_info)
+
+        if allowed:
+            plugin = getattr(record, "plugin_id", "-")
+            prefix = ""
+            if plugin not in ("", "-"):
+                prefix = str(plugin)
+            else:
+                name = str(getattr(record, "name", "") or "")
+                if name.startswith("datalens.plugins."):
+                    parts = name.split(".")
+                    if len(parts) >= 3 and parts[2]:
+                        prefix = parts[2]
+            text = record.getMessage()
+            value_raw = getattr(record, "progress_value", None)
+            value: float | None = None
+            if isinstance(value_raw, (int, float)):
+                v = float(value_raw)
+                if v < 0.0:
+                    v = 0.0
+                if v > 1.0:
+                    v = 1.0
+                value = v
+
+            if prefix:
+                sink(f"{prefix}: {text}", value)
+            else:
+                sink(text, value)
+    except Exception:
+        pass
 
 
 class CompactFormatter(logging.Formatter):
@@ -415,6 +488,35 @@ class DatalensLoggerAdapter(logging.LoggerAdapter):
         kwargs["extra"] = merged
         return msg, kwargs
 
+    def progress(self, msg: Any, *args: Any, value: float | None = None, **kwargs: Any) -> None:
+        """
+        Log a user-facing progress message.
+
+        Equivalent to:
+        - ``log.info(msg, extra={'progress': True})``
+
+        When a loader dialog is active, this message is also forwarded to the
+        dialog (best-effort) while still being logged normally.
+        """
+        extra = kwargs.get("extra")
+        if not isinstance(extra, dict):
+            extra = {}
+        if "progress" not in extra and "ui_progress" not in extra:
+            extra["progress"] = True
+        if value is not None and "progress_value" not in extra:
+            try:
+                v = float(value)
+            except Exception:
+                v = None
+            if v is not None:
+                if v < 0.0:
+                    v = 0.0
+                if v > 1.0:
+                    v = 1.0
+                extra["progress_value"] = v
+        kwargs["extra"] = extra
+        self.info(msg, *args, **kwargs)
+
 
 def current_log_context() -> dict[str, Any]:
     """
@@ -445,6 +547,60 @@ def bind_log_context(**fields: Any) -> Iterator[None]:
         yield
     finally:
         _LOG_CONTEXT.reset(token)
+
+
+@contextmanager
+def bind_loader_dialog_sink(
+    sink: Callable[[str, float | None], None] | None,
+    *,
+    policy: LoaderDialogSinkPolicy | None = None,
+) -> Iterator[None]:
+    """
+    Bind a loader dialog sink for the current execution context.
+
+    When bound, logs may be mirrored into the active loader dialog depending on
+    `policy`:
+
+    - ``extra={'progress': True}`` (or `log.progress(...)`) is mirrored when
+      ``policy.show_log_progress`` is True.
+    - Regular logs can optionally be mirrored by level (INFO/WARNING/ERROR/CRITICAL).
+
+    Notes:
+    - This is a UX channel, not a security boundary.
+    - The sink must be thread-safe and must not touch Qt widgets directly.
+      The loader runner provides a sink that routes to the UI thread.
+    """
+    pol = policy or LoaderDialogSinkPolicy()
+    token = _LOADER_DIALOG_SINK.set(None if not callable(sink) else (sink, pol))
+    try:
+        yield
+    finally:
+        _LOADER_DIALOG_SINK.reset(token)
+
+
+@contextmanager
+def bind_loader_progress_sink(sink: Callable[[str], None] | None) -> Iterator[None]:
+    """
+    Backwards-compatible helper: bind a message-only progress sink.
+
+    Only logs marked with ``extra={'progress': True}`` are mirrored.
+    """
+    if not callable(sink):
+        with bind_loader_dialog_sink(None):
+            yield
+        return
+
+    def wrapped(message: str, value: float | None) -> None:
+        sink(message)
+
+    with bind_loader_dialog_sink(wrapped, policy=LoaderDialogSinkPolicy(show_log_progress=True)):
+        yield
+
+
+def in_loader_progress() -> bool:
+    """True if a loader progress sink is currently bound."""
+    sink_tuple = _LOADER_DIALOG_SINK.get()
+    return bool(sink_tuple and callable(sink_tuple[0]))
 
 
 @contextmanager

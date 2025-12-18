@@ -10,5 +10,6 @@
    
       AppTheme
       DualRingSpinner
+      QTimer
       ThemedWidget
    

@@ -10,15 +10,30 @@ These are cross-cutting, app/user scoped schemas that multiple systems use:
 """
 
 from .settings import AppSettings
+from .shortcuts import (
+    ShortcutChord,
+    ShortcutCommandId,
+    ShortcutCommandSpec,
+    ShortcutOverrides,
+    ShortcutPageSpec,
+    ShortcutScope,
+    ShortcutSectionSpec,
+)
 from .user_profile import UserProfile
 from .workspace_state import WorkspaceStateSnapshot
 from .plugin_state import PluginStateEntry, PluginStateSnapshot
 
 __all__ = [
     "AppSettings",
+    "ShortcutChord",
+    "ShortcutCommandId",
+    "ShortcutCommandSpec",
+    "ShortcutOverrides",
+    "ShortcutPageSpec",
+    "ShortcutScope",
+    "ShortcutSectionSpec",
     "UserProfile",
     "WorkspaceStateSnapshot",
     "PluginStateEntry",
     "PluginStateSnapshot",
 ]
-

@@ -13,11 +13,15 @@
       _infer_execution
       _infer_layer
       _infer_subsystem
+      bind_loader_dialog_sink
+      bind_loader_progress_sink
       bind_log_context
       contextmanager
+      current_log_context
       dataclass
       datalens_user_data_dir
       get_logger
+      in_loader_progress
       init_logging
       log_operation
       shutdown_logging
@@ -29,7 +33,9 @@
    
       Any
       CompactFormatter
+      DatalensLoggerAdapter
       DroppingQueueHandler
+      LoaderDialogSinkPolicy
       LoggingSystem
       Path
    

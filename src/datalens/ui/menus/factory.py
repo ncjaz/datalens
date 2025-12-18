@@ -8,6 +8,7 @@ from datalens.ui.menus.file.controller import QtFileMenuController
 from datalens.ui.menus.help.controller import QtHelpMenuController
 from datalens.ui.menus.menubar import DatalensMenuBar
 from datalens.ui.menus.plugins.controller import QtPluginsMenuController
+from datalens.ui.shortcuts.core_shortcuts import register_core_shortcuts
 
 
 def create_menubar(main_window: QMainWindow) -> DatalensMenuBar:
@@ -23,4 +24,5 @@ def create_menubar(main_window: QMainWindow) -> DatalensMenuBar:
         plugins=QtPluginsMenuController(main_window),
         help=QtHelpMenuController(main_window),
     )
+    register_core_shortcuts(controllers=controllers)
     return DatalensMenuBar(main_window, controllers=controllers)

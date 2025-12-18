@@ -1,6 +1,6 @@
 # Event Hub (Planned): App-Wide EventHub + Project Lifecycle Events
 
-Status: **Planned (not implemented)**  
+Status: **Implemented (MVP)**  
 Owner: Core (plugin-safe contract)  
 Primary docs: `docs/events.md` (event list + payload contracts)
 
@@ -75,19 +75,20 @@ The hub is for "others can react" (UI refreshes, caches, indexers, uploaders, et
 
 ## Tasks (ordered)
 
-1) Implement `EventHub` in `datalens/src/datalens/core/events.py`
+1) Implement `EventHub` in `datalens/src/datalens/core/events.py` ✅
    - thread-safe queue + UI-thread drain
    - `Subscription` token with `unsubscribe()`
    - per-subscriber exception isolation + logging
 2) Wire hub into runtime context
-   - add `events: EventHub` to `AppContext` (`datalens/src/datalens/core/context.py`)
-   - initialise in `create_app_context()`
+   - add `events: EventHub` to `AppContext` (`datalens/src/datalens/core/context.py`) ✅
+   - initialise in `create_app_context()` ✅
+   - attach UI scheduler in `DatalensApplication` ✅
 3) Define initial event names + payload dataclasses (minimum viable set)
-   - project lifecycle events (above)
+   - project lifecycle events (above) ✅
    - optional: `SaveRequested`, `ExportRequested`, `PluginsEnabledChanged`
 4) Publish project lifecycle events from `ProjectService`
-   - publish after attach/close and on failures
-   - ensure publish occurs off critical UI path (publish is queued anyway)
+   - publish after attach/close and on failures ✅
+   - ensure publish occurs off critical UI path (publish is queued anyway) ✅
 5) Document contracts
    - update `docs/events.md` with the new events + payloads
 6) Plugin integration guidance

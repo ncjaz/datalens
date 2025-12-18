@@ -8,6 +8,7 @@
 
    .. autosummary::
    
+      Signal
       get_logger
    
    .. rubric:: Classes
@@ -17,4 +18,10 @@
       Any
       LoaderContext
       LoaderWorker
+   
+   .. rubric:: Exceptions
+
+   .. autosummary::
+   
+      LoaderCancelled
    

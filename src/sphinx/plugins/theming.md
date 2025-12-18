@@ -22,9 +22,9 @@ For icon styling rules, see `iconography.md`.
 The application applies the theme to the global Qt palette (V1-style) so common
 widgets automatically pick the correct surface colour:
 
-- `QPalette.Window` (top-level backgrounds) derives from `theme.secondary_color`
+- `QPalette.Window` (top-level backgrounds) derives from `theme.background_color`
 - `QPalette.Base` / `QPalette.AlternateBase` (viewports like lists/trees/inputs)
-  derive from slightly darker/lighter versions of `secondary_color`
+  derive from slightly darker/lighter versions of `background_color`
 
 In V2 this is done via `AppTheme.apply_to(QApplication)` (also exposed as
 `datalens.ui.theme.palette.apply_palette(app, theme)`).
@@ -57,7 +57,7 @@ strings:
 ```python
 bg = theme.selected_fill(theme.primary_color)      # default selected_fill alpha
 border = theme.primary_color                       # full opacity
-disabled = theme.disabled_fill_color(theme.secondary_color)
+disabled = theme.disabled_fill_color(theme.background_color)
 ```
 
 ### Custom painting (QPainter)
@@ -65,7 +65,7 @@ disabled = theme.disabled_fill_color(theme.secondary_color)
 Use `QColor` helpers:
 
 ```python
-track = theme.qcolor_with_alpha(theme.secondary_color, theme.opacity.subtle_fill)
+track = theme.qcolor_with_alpha(theme.background_color, theme.opacity.subtle_fill)
 ```
 
 ### Utility helpers (lighten/darken/contrast)

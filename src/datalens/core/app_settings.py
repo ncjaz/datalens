@@ -9,7 +9,10 @@ from datalens.core.logging import get_logger
 from datalens.domain.system.settings import AppSettings
 from datalens.domain.plugin import PluginId
 from datalens.domain.system.user_profile import UserProfile
-from datalens.domain.ui.theme import ThemeOpacitySettings
+from datalens.domain.system.ui import LoaderUiSettings
+from datalens.domain.system.plugin_overrides import PluginDefinitionOverride
+from datalens.domain.system.shortcuts import ShortcutOverrides
+from datalens.domain.ui.theme import DEFAULT_THEME, ThemeOpacitySettings, ThemeSettings
 
 
 def _settings_from_dict(data: dict[str, Any]) -> AppSettings:
@@ -50,9 +53,81 @@ def _settings_from_dict(data: dict[str, Any]) -> AppSettings:
     plugin_settings_raw = data.get("plugin_settings", {})
     plugin_settings = plugin_settings_raw if isinstance(plugin_settings_raw, dict) else {}
 
+    plugin_overrides_raw = data.get("plugin_overrides", {})
+    plugin_overrides: dict[str, PluginDefinitionOverride] = {}
+    if isinstance(plugin_overrides_raw, dict):
+        for plugin_id, raw in plugin_overrides_raw.items():
+            if not isinstance(plugin_id, str) or not plugin_id.strip():
+                continue
+            if not isinstance(raw, dict):
+                continue
+            name = raw.get("name")
+            description = raw.get("description")
+            author = raw.get("author")
+            group = raw.get("group")
+            nav_label = raw.get("nav_label")
+
+            plugin_overrides[plugin_id] = PluginDefinitionOverride(
+                name=str(name) if name is not None else None,
+                description=str(description) if description is not None else None,
+                author=str(author) if author is not None else None,
+                group=str(group) if group is not None else None,
+                nav_label=str(nav_label) if nav_label is not None else None,
+            )
+
     theme_name = data.get("theme_name", "default")
     if not isinstance(theme_name, str):
         theme_name = "default"
+
+    theme_settings_raw = data.get("theme_settings")
+    if isinstance(theme_settings_raw, dict):
+        primary_color = str(theme_settings_raw.get("primary_color", DEFAULT_THEME.primary_color))
+        background_color = str(theme_settings_raw.get("background_color", DEFAULT_THEME.background_color))
+        secondary_color = str(theme_settings_raw.get("secondary_color", DEFAULT_THEME.secondary_color))
+        tertiary_color = str(theme_settings_raw.get("tertiary_color", DEFAULT_THEME.tertiary_color))
+        text_color = str(theme_settings_raw.get("text_color", DEFAULT_THEME.text_color))
+        chart_grid_color = str(theme_settings_raw.get("chart_grid_color", DEFAULT_THEME.chart_grid_color))
+        accent_confirm = str(theme_settings_raw.get("accent_confirm", DEFAULT_THEME.accent_confirm))
+        accent_cancel = str(theme_settings_raw.get("accent_cancel", DEFAULT_THEME.accent_cancel))
+        accent_warning = str(theme_settings_raw.get("accent_warning", DEFAULT_THEME.accent_warning))
+
+        primary_border = str(theme_settings_raw.get("primary_border", DEFAULT_THEME.primary_border))
+        secondary_border = str(theme_settings_raw.get("secondary_border", DEFAULT_THEME.secondary_border))
+        tertiary_border = str(theme_settings_raw.get("tertiary_border", DEFAULT_THEME.tertiary_border))
+        accent_confirm_border = str(
+            theme_settings_raw.get("accent_confirm_border", DEFAULT_THEME.accent_confirm_border)
+        )
+        accent_cancel_border = str(theme_settings_raw.get("accent_cancel_border", DEFAULT_THEME.accent_cancel_border))
+        accent_warning_border = str(
+            theme_settings_raw.get("accent_warning_border", DEFAULT_THEME.accent_warning_border)
+        )
+
+        surface_base = theme_settings_raw.get("surface_base")
+        surface_button = theme_settings_raw.get("surface_button")
+        surface_alt = theme_settings_raw.get("surface_alt")
+
+        theme_settings = ThemeSettings(
+            primary_color=primary_color,
+            background_color=background_color,
+            secondary_color=secondary_color,
+            tertiary_color=tertiary_color,
+            text_color=text_color,
+            chart_grid_color=chart_grid_color,
+            accent_confirm=accent_confirm,
+            accent_cancel=accent_cancel,
+            accent_warning=accent_warning,
+            primary_border=primary_border,
+            secondary_border=secondary_border,
+            tertiary_border=tertiary_border,
+            accent_confirm_border=accent_confirm_border,
+            accent_cancel_border=accent_cancel_border,
+            accent_warning_border=accent_warning_border,
+            surface_base=str(surface_base) if isinstance(surface_base, str) and surface_base.strip() else None,
+            surface_button=str(surface_button) if isinstance(surface_button, str) and surface_button.strip() else None,
+            surface_alt=str(surface_alt) if isinstance(surface_alt, str) and surface_alt.strip() else None,
+        )
+    else:
+        theme_settings = DEFAULT_THEME
 
     opacity_raw = data.get("theme_opacity", {})
     if not isinstance(opacity_raw, dict):
@@ -78,14 +153,116 @@ def _settings_from_dict(data: dict[str, Any]) -> AppSettings:
     else:
         user_profile = None
 
+    loader_ui_raw = data.get("loader_ui", {})
+    if not isinstance(loader_ui_raw, dict):
+        loader_ui_raw = {}
+
+    loader_ui = LoaderUiSettings(
+        show_ctx_messages=bool(loader_ui_raw.get("show_ctx_messages", LoaderUiSettings.show_ctx_messages)),
+        show_log_progress=bool(loader_ui_raw.get("show_log_progress", LoaderUiSettings.show_log_progress)),
+        show_log_info=bool(loader_ui_raw.get("show_log_info", LoaderUiSettings.show_log_info)),
+        show_log_warning=bool(loader_ui_raw.get("show_log_warning", LoaderUiSettings.show_log_warning)),
+        show_log_error=bool(loader_ui_raw.get("show_log_error", LoaderUiSettings.show_log_error)),
+        show_log_critical=bool(loader_ui_raw.get("show_log_critical", LoaderUiSettings.show_log_critical)),
+    )
+
+    shortcut_overrides_raw = data.get("shortcut_overrides", {})
+    shortcut_bindings_raw: dict[str, dict[str, str | None]] = {}
+    shortcut_gesture_bindings_raw: dict[str, dict[str, str | None]] = {}
+    shortcut_consume_overrides_raw: dict[str, dict[str, bool]] = {}
+    shortcut_mode_toggle_overrides_raw: dict[str, dict[str, bool]] = {}
+    if isinstance(shortcut_overrides_raw, dict):
+        raw_bindings = shortcut_overrides_raw.get("bindings", {})
+        if isinstance(raw_bindings, dict):
+            for plugin_id, per_plugin in raw_bindings.items():
+                if not isinstance(plugin_id, str) or not plugin_id.strip():
+                    continue
+                if not isinstance(per_plugin, dict):
+                    continue
+                normalized: dict[str, str | None] = {}
+                for cmd_id, chord in per_plugin.items():
+                    if not isinstance(cmd_id, str) or not cmd_id.strip():
+                        continue
+                    if chord is None:
+                        normalized[cmd_id] = None
+                        continue
+                    if isinstance(chord, str):
+                        chord_s = chord.strip()
+                        normalized[cmd_id] = chord_s if chord_s else None
+                if normalized:
+                    shortcut_bindings_raw[plugin_id] = normalized
+
+        raw_gestures = shortcut_overrides_raw.get("gesture_bindings", {})
+        if isinstance(raw_gestures, dict):
+            for plugin_id, per_plugin in raw_gestures.items():
+                if not isinstance(plugin_id, str) or not plugin_id.strip():
+                    continue
+                if not isinstance(per_plugin, dict):
+                    continue
+                normalized: dict[str, str | None] = {}
+                for gesture_id, chord in per_plugin.items():
+                    if not isinstance(gesture_id, str) or not gesture_id.strip():
+                        continue
+                    if chord is None:
+                        normalized[gesture_id] = None
+                        continue
+                    if isinstance(chord, str):
+                        chord_s = chord.strip()
+                        normalized[gesture_id] = chord_s if chord_s else None
+                if normalized:
+                    shortcut_gesture_bindings_raw[plugin_id] = normalized
+
+        raw_consume = shortcut_overrides_raw.get("consume_event_overrides", {})
+        if isinstance(raw_consume, dict):
+            for plugin_id, per_plugin in raw_consume.items():
+                if not isinstance(plugin_id, str) or not plugin_id.strip():
+                    continue
+                if not isinstance(per_plugin, dict):
+                    continue
+                normalized: dict[str, bool] = {}
+                for cmd_id, val in per_plugin.items():
+                    if not isinstance(cmd_id, str) or not cmd_id.strip():
+                        continue
+                    if isinstance(val, bool):
+                        normalized[cmd_id] = val
+                if normalized:
+                    shortcut_consume_overrides_raw[plugin_id] = normalized
+
+        raw_modes = shortcut_overrides_raw.get("mode_toggle_overrides", {})
+        if isinstance(raw_modes, dict):
+            for plugin_id, per_plugin in raw_modes.items():
+                if not isinstance(plugin_id, str) or not plugin_id.strip():
+                    continue
+                if not isinstance(per_plugin, dict):
+                    continue
+                normalized: dict[str, bool] = {}
+                for cmd_id, val in per_plugin.items():
+                    if not isinstance(cmd_id, str) or not cmd_id.strip():
+                        continue
+                    if isinstance(val, bool):
+                        normalized[cmd_id] = val
+                if normalized:
+                    shortcut_mode_toggle_overrides_raw[plugin_id] = normalized
+
+    shortcut_overrides = ShortcutOverrides(
+        bindings=shortcut_bindings_raw,
+        gesture_bindings=shortcut_gesture_bindings_raw,
+        consume_event_overrides=shortcut_consume_overrides_raw,
+        mode_toggle_overrides=shortcut_mode_toggle_overrides_raw,
+    )
+
     return AppSettings(
         last_project_root=last_project_root,
         recent_projects=tuple(recent_projects),
         welcome_splitter_state_b64=welcome_splitter_state_b64,
         user_data_dir=user_data_dir,
         enabled_plugins=enabled_plugins,
+        loader_ui=loader_ui,
+        shortcut_overrides=shortcut_overrides,
         plugin_settings=plugin_settings,
+        plugin_overrides=plugin_overrides,
         theme_name=theme_name,
+        theme_settings=theme_settings,
         theme_opacity=theme_opacity,
         user_profile=user_profile,
     )
@@ -98,6 +275,7 @@ def _settings_to_dict(settings: AppSettings) -> dict[str, Any]:
     payload["welcome_splitter_state_b64"] = settings.welcome_splitter_state_b64
     payload["user_data_dir"] = str(settings.user_data_dir) if settings.user_data_dir else None
     payload["enabled_plugins"] = list(settings.enabled_plugins)
+    payload["theme_settings"] = asdict(settings.theme_settings)
     payload["theme_opacity"] = asdict(settings.theme_opacity)
     payload["user_profile"] = asdict(settings.user_profile) if settings.user_profile else None
     return payload

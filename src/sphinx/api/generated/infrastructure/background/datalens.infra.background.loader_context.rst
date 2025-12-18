@@ -10,3 +10,9 @@
    
       LoaderContext
    
+   .. rubric:: Exceptions
+
+   .. autosummary::
+   
+      LoaderCancelled
+   

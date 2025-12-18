@@ -29,7 +29,7 @@ class Toggle(QWidget, StyledMixin):
 
     By default it uses the AppTheme:
 
-      - base (unselected) background: theme.secondary_color
+      - base (unselected) background: theme.background_color
       - selected background:         theme.primary_color
       - hover: derived via theme opacity settings
 
@@ -150,7 +150,7 @@ class Toggle(QWidget, StyledMixin):
 
         base_bg, selected_bg, hover_unselected, hover_selected = self._resolve_colors(
             theme,
-            default_base=s.secondary_color,
+            default_base=s.background_color,
             default_selected=s.primary_color,
         )
 
@@ -168,9 +168,9 @@ class Toggle(QWidget, StyledMixin):
         text_color = s.text_color
 
         # Disabled colours: derived from theme opacity policy (consistent across UI)
-        disabled_bg = theme.disabled_fill_color(s.secondary_color)
+        disabled_bg = theme.disabled_fill_color(s.background_color)
         disabled_text = theme.disabled_text_color()
-        disabled_border = theme.disabled_border_color(s.secondary_color)
+        disabled_border = theme.disabled_border_color(s.background_color)
 
         qss = f"""
         QToolButton[segment="left"],

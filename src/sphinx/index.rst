@@ -8,13 +8,7 @@ docstrings for the `datalens/src/datalens` package.
    :maxdepth: 2
    :caption: DataLens V2 documentation
 
-   v2_overview
-   core_systems
-   ui/index
-   ipc/index
-   plugins/index
-   services
-   documentation_plan
-   architecture_audit
-   plugin_dev/index
-   api_reference
+   overview/index
+   concepts/index
+   guides/index
+   reference/index

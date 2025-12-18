@@ -93,6 +93,124 @@ _CORE_DML_ALLOWED: set[str] = {"app_meta"}
 _SQL_WS = re.compile(r"\s+")
 _SQL_QUOTED = re.compile(r'^[`"\[]?(.*?)[`"\]]?$')
 
+def _sqlite_const(name: str) -> int | None:
+    return getattr(sqlite3, name, None)
+
+
+_CORE_ONLY_DENY_ACTIONS: set[int] = {
+    c
+    for c in (
+        # Dangerous / out-of-scope operations for core-only tasks.
+        _sqlite_const("SQLITE_ATTACH"),
+        _sqlite_const("SQLITE_DETACH"),
+        _sqlite_const("SQLITE_DROP_TABLE"),
+        _sqlite_const("SQLITE_DROP_INDEX"),
+        _sqlite_const("SQLITE_DROP_TRIGGER"),
+        _sqlite_const("SQLITE_DROP_VIEW"),
+        # Not all sqlite3 builds expose SQLITE_VACUUM; trace guard still catches it.
+        _sqlite_const("SQLITE_VACUUM"),
+        _sqlite_const("SQLITE_REINDEX"),
+        _sqlite_const("SQLITE_ANALYZE"),
+    )
+    if isinstance(c, int)
+}
+
+
+def _core_only_authorizer(
+    action: int,
+    arg1: str | None,
+    arg2: str | None,
+    db_name: str | None,
+    trigger_name: str | None,
+) -> int:
+    """
+    SQLite authorizer for core-only tasks.
+
+    This provides stronger guarantees than the best-effort trace callback guard.
+    It prevents core-managed call sites (migrations, inspection helpers) from
+    accidentally mutating plugin-owned tables or plugin-owned rows in core tables.
+
+    Notes:
+    - This is not a security boundary: plugin code runs in-process and can open
+      its own SQLite connections if it chooses. This is enforcement for core code
+      paths and well-behaved plugins that use our facades.
+    """
+
+    if action in _CORE_ONLY_DENY_ACTIONS:
+        raise CoreDbOwnershipError(
+            f"Core-only DB operation attempted (sqlite authorizer deny): action={action} arg1={arg1!r} arg2={arg2!r}"
+        )
+
+    # Allow all reads/selects/functions/transactions.
+    if action in {
+        sqlite3.SQLITE_READ,
+        sqlite3.SQLITE_SELECT,
+        sqlite3.SQLITE_FUNCTION,
+        sqlite3.SQLITE_TRANSACTION,
+        sqlite3.SQLITE_SAVEPOINT,
+    }:
+        return sqlite3.SQLITE_OK
+
+    # Pragmas are used by core schema helpers (including setting user_version).
+    if action == sqlite3.SQLITE_PRAGMA:
+        return sqlite3.SQLITE_OK
+
+    def normalize_table(name: str | None) -> str:
+        return _normalize_ident(name or "")
+
+    if action in {sqlite3.SQLITE_INSERT, sqlite3.SQLITE_UPDATE, sqlite3.SQLITE_DELETE}:
+        table = normalize_table(arg1)
+        if table in _CORE_DML_ALLOWED:
+            return sqlite3.SQLITE_OK
+        if table in _CORE_TABLES:
+            raise CoreDbOwnershipError(
+                f"Core-only DB operation attempted to mutate plugin-owned rows in {table!r}"
+            )
+        raise CoreDbOwnershipError(
+            f"Core-only DB operation attempted to modify non-core table {table!r}"
+        )
+
+    if action in {sqlite3.SQLITE_CREATE_TABLE, sqlite3.SQLITE_ALTER_TABLE}:
+        table = normalize_table(arg1)
+        if table in _CORE_TABLES:
+            return sqlite3.SQLITE_OK
+        raise CoreDbOwnershipError(
+            f"Core-only DB operation attempted to change non-core table {table!r}"
+        )
+
+    if action == sqlite3.SQLITE_CREATE_INDEX:
+        table = normalize_table(arg2)
+        if table in _CORE_TABLES:
+            return sqlite3.SQLITE_OK
+        raise CoreDbOwnershipError(
+            f"Core-only DB operation attempted to index non-core table {table!r}"
+        )
+
+    # Default: deny unknown/unsupported writes to keep core-only paths conservative.
+    raise CoreDbOwnershipError(
+        f"Core-only DB operation attempted (unexpected): action={action} arg1={arg1!r} arg2={arg2!r}"
+    )
+
+
+def _install_core_only_guards(conn: sqlite3.Connection) -> None:
+    conn.set_trace_callback(_assert_core_only_sql)
+    try:
+        conn.set_authorizer(_core_only_authorizer)
+    except Exception:
+        # Some builds may not expose authorizers; trace guard still applies.
+        pass
+
+
+def _clear_core_only_guards(conn: sqlite3.Connection) -> None:
+    try:
+        conn.set_trace_callback(None)
+    except Exception:
+        pass
+    try:
+        conn.set_authorizer(None)
+    except Exception:
+        pass
+
 
 def _normalize_ident(ident: str) -> str:
     ident = _SQL_WS.sub(" ", ident.strip())
@@ -440,7 +558,7 @@ class SqliteProjectDb(ProjectDb):
                     continue
                 try:
                     if task.core_only:
-                        conn.set_trace_callback(_assert_core_only_sql)
+                        _install_core_only_guards(conn)
                     result = task.context.run(task.fn, conn)
                     conn.commit()
                     task.future.set_result(result)
@@ -453,10 +571,7 @@ class SqliteProjectDb(ProjectDb):
                     task.future.set_exception(exc)
                 finally:
                     if task.core_only:
-                        try:
-                            conn.set_trace_callback(None)
-                        except Exception:
-                            pass
+                        _clear_core_only_guards(conn)
         finally:
             try:
                 conn.close()

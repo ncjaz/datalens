@@ -9,6 +9,7 @@
    .. autosummary::
    
       _lock_for
+      default_debounced_settings_writer
       default_settings_store
       load_app_settings
       replace

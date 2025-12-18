@@ -4,26 +4,24 @@
 .. automodule:: datalens.services.plugins.runtime
 
    
-   .. rubric:: Functions
-
-   .. autosummary::
-   
-      dataclass
-   
    .. rubric:: Classes
 
    .. autosummary::
    
-      Any
-      AppContext
       BasePlugin
-      Callable
-      Future
       NoopPlugin
       PluginAppContext
-      PluginDb
-      PluginDefinition
       PluginProjectContext
-      ProjectContext
-      Protocol
+      ProjectAwarePlugin
    
+.. rubric:: Modules
+
+.. autosummary::
+   :toctree:
+   :recursive:
+
+   contracts
+   dispatcher
+   host
+   loader
+   types

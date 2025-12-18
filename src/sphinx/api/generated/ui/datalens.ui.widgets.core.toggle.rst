@@ -8,6 +8,7 @@
 
    .. autosummary::
    
+      Signal
       dataclass
       lighten_hex
    

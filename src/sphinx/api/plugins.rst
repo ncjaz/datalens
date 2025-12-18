@@ -12,4 +12,3 @@ orchestration used by the app (PluginHost + lifecycle hook dispatch).
    datalens.services.plugins.registry
    datalens.services.plugins.scaffold
    datalens.services.plugins.runtime
-   datalens.services.plugins.runtime.host

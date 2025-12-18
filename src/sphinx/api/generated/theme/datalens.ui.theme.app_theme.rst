@@ -8,6 +8,8 @@
 
    .. autosummary::
    
+      Signal
+      contrast_text_color
       darken_color
       lighten_color
       replace

@@ -3,11 +3,12 @@ from __future__ import annotations
 import os
 import time
 
-from PySide6.QtCore import QEvent
+from PySide6.QtCore import QEvent, QTimer
 from PySide6.QtWidgets import QApplication
 
 from datalens.core.context import AppContext, create_app_context
 from datalens.core.logging import get_logger
+from datalens.ui.shortcuts import ShortcutsEventFilter
 from datalens.ui.theme import AppTheme
 
 
@@ -32,6 +33,7 @@ class DatalensApplication(QApplication):
         slow_event_threshold_ms: float | None = None,
     ) -> None:
         super().__init__(argv)
+        self._sigint_requested = False
 
         self._slow_event_log = get_logger("datalens.ui.events")
         self._slow_event_threshold_ms = (
@@ -50,6 +52,12 @@ class DatalensApplication(QApplication):
         self.app_theme.apply_to(self)
         self.app_theme.theme_changed.connect(lambda: self.app_theme.apply_to(self))
         self.app_context: AppContext = create_app_context(self.app_theme)
+        self.app_context.events.attach_ui_scheduler(lambda fn: QTimer.singleShot(0, fn))
+
+        # Install the global shortcuts event filter (keyboard + mouse chords).
+        # This is app-wide, but dispatch only targets the focused top-level window.
+        self._shortcuts_filter = ShortcutsEventFilter(self.app_context.shortcuts)
+        self.installEventFilter(self._shortcuts_filter)
 
     def _resolve_slow_event_threshold(self) -> float:
         candidate = os.getenv("DATALENS_SLOW_EVENT_THRESHOLD_MS")
@@ -87,6 +95,18 @@ class DatalensApplication(QApplication):
         start = time.perf_counter() if profile_event else 0.0
         try:
             return super().notify(receiver, event)
+        except KeyboardInterrupt:
+            # Ctrl+C / SIGINT should behave like an emergency stop when running from a terminal.
+            # Do not let the exception escape into Qt (it logs "Error calling Python override...").
+            if self._sigint_requested:
+                os._exit(130)
+            self._sigint_requested = True
+            get_logger("datalens.ui").warning(
+                "SIGINT received (Ctrl+C); shutting down...",
+                extra={"operation": "sigint", "phase": "request"},
+            )
+            QTimer.singleShot(0, lambda: self.exit(130))
+            return True
         except BaseException:
             get_logger("datalens.crash").exception(
                 "Unhandled Qt event",

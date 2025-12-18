@@ -25,10 +25,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 import inspect
 from typing import Any, Callable, Optional
-from PySide6.QtCore import QObject, QTimer, Slot
+from PySide6.QtCore import Q_ARG, QMetaObject, QObject, QTimer, Qt, Slot
 from PySide6.QtWidgets import QWidget
 
-from datalens.core.logging import get_logger
+from datalens.core.logging import LoaderDialogSinkPolicy, bind_loader_dialog_sink, get_logger
 from datalens.infra.background.loader_context import LoaderCancelled, LoaderContext
 from datalens.infra.background.loader_worker import LoaderWorker
 
@@ -99,6 +99,7 @@ class _ResultRouter(QObject):
         on_cancelled: Callable[[], None] | None,
         keep_open_on_error: bool,
         log_context: dict[str, Any] | None,
+        show_ctx_messages: bool,
     ) -> None:
         super().__init__(dialog)
         self._dialog = dialog
@@ -109,6 +110,7 @@ class _ResultRouter(QObject):
         self._on_cancelled = on_cancelled
         self._keep_open_on_error = keep_open_on_error
         self._log_context = log_context or None
+        self._show_ctx_messages = bool(show_ctx_messages)
         self._log = get_logger("datalens.ui.loader")
 
     @Slot(str)
@@ -126,6 +128,27 @@ class _ResultRouter(QObject):
             )
         except Exception:
             pass
+        if not self._show_ctx_messages:
+            return
+        try:
+            append = getattr(self._dialog, "append_message", None)
+            if callable(append):
+                append(message)
+        except Exception:
+            return
+
+    @Slot(str)
+    def on_progress_log_message(self, text: str) -> None:
+        """
+        Append a progress message to the dialog without emitting an extra log line.
+
+        The logging system can forward log records marked with
+        ``extra={'progress': True}`` to this slot. The record itself is already
+        logged to file/console; this slot only updates the loader UI.
+        """
+        message = (text or "").strip()
+        if not message:
+            return
         try:
             append = getattr(self._dialog, "append_message", None)
             if callable(append):
@@ -323,7 +346,6 @@ def run_with_loader(
 
     dialog = LoaderDialog(**dialog_kwargs)
     worker = LoaderWorker(task)
-    worker.capture_context()
     # Keep Python references alive for the lifetime of the dialog.
     # (Especially important when parent is None.)
     dialog._loader_worker = worker  # type: ignore[attr-defined]
@@ -382,6 +404,25 @@ def run_with_loader(
 
     dialog.destroyed.connect(lambda *_: _cleanup())
 
+    show_ctx_messages = True
+    sink_policy = LoaderDialogSinkPolicy()
+    try:
+        from datalens.services.settings_store import default_settings_store
+
+        settings = default_settings_store().load()
+        loader_ui = getattr(settings, "loader_ui", None)
+        if loader_ui is not None:
+            show_ctx_messages = bool(getattr(loader_ui, "show_ctx_messages", True))
+            sink_policy = LoaderDialogSinkPolicy(
+                show_log_progress=bool(getattr(loader_ui, "show_log_progress", True)),
+                show_log_info=bool(getattr(loader_ui, "show_log_info", False)),
+                show_log_warning=bool(getattr(loader_ui, "show_log_warning", False)),
+                show_log_error=bool(getattr(loader_ui, "show_log_error", False)),
+                show_log_critical=bool(getattr(loader_ui, "show_log_critical", False)),
+            )
+    except Exception:
+        pass
+
     router = _ResultRouter(
         dialog=dialog,
         cleanup=_cleanup,
@@ -391,6 +432,7 @@ def run_with_loader(
         on_cancelled=on_cancelled,
         keep_open_on_error=keep_open_on_error,
         log_context=log_context,
+        show_ctx_messages=show_ctx_messages,
     )
     dialog._loader_router = router  # type: ignore[attr-defined]
 
@@ -399,6 +441,30 @@ def run_with_loader(
     worker.finished.connect(router.on_finished)
     worker.cancelled.connect(router.on_cancelled)
     worker.failed.connect(router.on_failed)
+
+    # Allow any code running within this loader task to "report progress" by
+    # logging with `extra={'progress': True}`. The sink is stored in contextvars
+    # and captured for the worker thread.
+    def _loader_dialog_sink(message: str, value: float | None) -> None:
+        try:
+            QMetaObject.invokeMethod(
+                router,
+                "on_progress_log_message",
+                Qt.QueuedConnection,
+                Q_ARG(str, str(message)),
+            )
+            if value is not None:
+                QMetaObject.invokeMethod(
+                    router,
+                    "on_progress",
+                    Qt.QueuedConnection,
+                    Q_ARG(float, float(value)),
+                )
+        except Exception:
+            return
+
+    with bind_loader_dialog_sink(_loader_dialog_sink, policy=sink_policy):
+        worker.capture_context()
 
     # -------------------------------------------------------------- #
     # Begin execution

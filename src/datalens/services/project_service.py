@@ -14,7 +14,15 @@ from concurrent.futures import Future
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
-from datalens.core.context import AppContext, ProjectContext
+from datalens.core.context import AppContext, ProjectContext, get_app_context
+from datalens.core.events import (
+    ActiveProjectChanged,
+    EventHub,
+    ProjectClosed,
+    ProjectClosing,
+    ProjectOpenFailed,
+    ProjectOpened,
+)
 from datalens.core.logging import get_logger
 from datalens.infra.project_paths import project_db_path, project_meta_path
 from datalens.services.background_io.writer import IoWriter
@@ -125,11 +133,23 @@ def load_project_async(project_root: Path, *, io: IoWriter) -> Future[ProjectCon
     return future
 
 
-def attach_project(app_ctx: AppContext, project: ProjectContext, *, schedule_meta: bool = True) -> None:
+def attach_project(app_ctx: AppContext | None, project: ProjectContext, *, schedule_meta: bool = True) -> None:
     """Attach a loaded project context to the app context (gating)."""
+    if app_ctx is None:
+        app_ctx = get_app_context()
+    previous = app_ctx.project_root
     app_ctx.active_project = project
     if schedule_meta:
         schedule_project_meta_write(app_ctx, project)
+    try:
+        now = time.time()
+        app_ctx.events.publish(EventHub.PROJECT_OPENED, ProjectOpened(project_root=project.project_root, timestamp_s=now))
+        app_ctx.events.publish(
+            EventHub.ACTIVE_PROJECT_CHANGED,
+            ActiveProjectChanged(previous_root=previous, current_root=project.project_root, timestamp_s=now),
+        )
+    except Exception:
+        log.debug("Failed to publish project attach events (best-effort)", exc_info=True)
 
 
 def schedule_project_meta_write(app_ctx: AppContext, project: ProjectContext) -> None:
@@ -170,26 +190,8 @@ def schedule_project_meta_write(app_ctx: AppContext, project: ProjectContext) ->
         )
 
 
-def open_project(app_ctx: AppContext, project_root: Path) -> ProjectContext:
-    """
-    Open a project and attach it to the app context.
-
-    This creates process resources (DB executor) and closes any previous project.
-
-    Important:
-        This function may block while the project DB initializes. Do not call it
-        on the UI thread. Use the loader/background pipeline (or a dedicated
-        async wrapper) in UI code.
-    """
-    _require_not_ui_thread("open_project")
-    close_project(app_ctx)
-    project = load_project(project_root, io=app_ctx.io)
-    attach_project(app_ctx, project)
-    return project
-
-
 def open_project_with_plugins(
-    app_ctx: AppContext,
+    app_ctx: AppContext | None,
     project_root: Path,
     *,
     plugin_host: "PluginHost | None" = None,
@@ -214,6 +216,8 @@ def open_project_with_plugins(
     - If plugin migrations fail, the project is closed and `active_project` is
       cleared before raising.
     """
+    if app_ctx is None:
+        app_ctx = get_app_context()
     _require_not_ui_thread("open_project_with_plugins")
 
     def emit(text: str) -> None:
@@ -227,7 +231,7 @@ def open_project_with_plugins(
     try:
         if app_ctx.active_project is not None:
             emit("Closing previous project...")
-            close_project_blocking(app_ctx, timeout_seconds=close_timeout_seconds)
+            close_project_blocking(app_ctx, timeout_seconds=close_timeout_seconds, reason="switch")
 
         project = load_project(Path(project_root), io=app_ctx.io)
 
@@ -258,7 +262,14 @@ def open_project_with_plugins(
             extra={"operation": "project_open", "phase": "error"},
         )
         try:
-            close_project(app_ctx)
+            app_ctx.events.publish(
+                EventHub.PROJECT_OPEN_FAILED,
+                ProjectOpenFailed(project_root=Path(project_root), error=str(exc), timestamp_s=time.time()),
+            )
+        except Exception:
+            log.debug("Failed to publish project open failed event (best-effort)", exc_info=True)
+        try:
+            close_project(app_ctx, reason="open_failed")
         except Exception:
             log.warning(
                 "Failed to clean up after project open failure (best-effort)",
@@ -272,13 +283,23 @@ def open_project_with_plugins(
         ) from exc
 
 
-def close_project(app_ctx: AppContext) -> None:
+def close_project(app_ctx: AppContext, *, reason: str = "close") -> None:
     """Close the currently active project (if any)."""
+    if app_ctx is None:
+        app_ctx = get_app_context()
     current = app_ctx.active_project
     if current is None:
         return
     _require_not_ui_thread("close_project")
     try:
+        try:
+            app_ctx.events.publish(
+                EventHub.PROJECT_CLOSING,
+                ProjectClosing(project_root=current.project_root, reason=str(reason), timestamp_s=time.time()),
+            )
+        except Exception:
+            log.debug("Failed to publish project closing event (best-effort)", exc_info=True)
+
         # Best-effort flush to reduce risk of dropping queued work. Do not call
         # this function on the UI thread; use a background/loader stage.
         try:
@@ -293,9 +314,23 @@ def close_project(app_ctx: AppContext) -> None:
         current.project_db.close()
     finally:
         app_ctx.active_project = None
+        try:
+            now = time.time()
+            app_ctx.events.publish(EventHub.PROJECT_CLOSED, ProjectClosed(project_root=current.project_root, timestamp_s=now))
+            app_ctx.events.publish(
+                EventHub.ACTIVE_PROJECT_CHANGED,
+                ActiveProjectChanged(previous_root=current.project_root, current_root=None, timestamp_s=now),
+            )
+        except Exception:
+            log.debug("Failed to publish project close events (best-effort)", exc_info=True)
 
 
-def close_project_blocking(app_ctx: AppContext, *, timeout_seconds: float = 30.0) -> None:
+def close_project_blocking(
+    app_ctx: AppContext | None,
+    *,
+    timeout_seconds: float = 30.0,
+    reason: str = "close",
+) -> None:
     """
     Close the active project with flush guarantees.
 
@@ -306,6 +341,8 @@ def close_project_blocking(app_ctx: AppContext, *, timeout_seconds: float = 30.0
 
     This may block. Do not call it on the UI thread.
     """
+    if app_ctx is None:
+        app_ctx = get_app_context()
     _require_not_ui_thread("close_project_blocking")
     current = app_ctx.active_project
     if current is None:
@@ -318,6 +355,14 @@ def close_project_blocking(app_ctx: AppContext, *, timeout_seconds: float = 30.0
         if deadline is None:
             return None
         return max(0.0, deadline - time.monotonic())
+
+    try:
+        app_ctx.events.publish(
+            EventHub.PROJECT_CLOSING,
+            ProjectClosing(project_root=current.project_root, reason=str(reason), timestamp_s=time.time()),
+        )
+    except Exception:
+        log.debug("Failed to publish project closing event (best-effort)", exc_info=True)
 
     # 1) Plugin flush hooks (plugins own their pipelines).
     hook_futures: list[Future[object]] = []
@@ -375,3 +420,12 @@ def close_project_blocking(app_ctx: AppContext, *, timeout_seconds: float = 30.0
         current.project_db.close()
     finally:
         app_ctx.active_project = None
+        try:
+            now = time.time()
+            app_ctx.events.publish(EventHub.PROJECT_CLOSED, ProjectClosed(project_root=current.project_root, timestamp_s=now))
+            app_ctx.events.publish(
+                EventHub.ACTIVE_PROJECT_CHANGED,
+                ActiveProjectChanged(previous_root=current.project_root, current_root=None, timestamp_s=now),
+            )
+        except Exception:
+            log.debug("Failed to publish project close events (best-effort)", exc_info=True)

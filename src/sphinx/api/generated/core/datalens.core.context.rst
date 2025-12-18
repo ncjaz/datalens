@@ -12,6 +12,7 @@
       dataclass
       default_io_writer
       field
+      get_app_context
       settings_store
    
    .. rubric:: Classes
@@ -22,11 +23,15 @@
       AppContext
       AppTheme
       Callable
+      EventHub
       Future
       IoWriter
       Path
+      PluginStateRegistry
       ProjectContext
       ProjectDb
+      ShortcutsService
+      WorkspaceStateService
    
    .. rubric:: Exceptions
 

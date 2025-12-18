@@ -15,6 +15,7 @@ class FileMenuController(Protocol):
 
 class EditMenuController(Protocol):
     def open_preferences(self) -> None: ...
+    def open_keyboard_shortcuts(self) -> None: ...
 
 
 class PluginsMenuController(Protocol):

@@ -127,7 +127,7 @@ class WelcomeProjectsPanel(QFrame):
         for path in recent_projects:
             item = QListWidgetItem(str(path))
             item.setToolTip(str(path))
-            item.setData(int(Qt.UserRole), str(path))
+            item.setData(Qt.UserRole, str(path))
             self._recent_projects_list.addItem(item)
 
     def _path_from_edit(self) -> Path | None:
@@ -176,7 +176,7 @@ class WelcomeProjectsPanel(QFrame):
         items = self._recent_projects_list.selectedItems()
         if not items:
             return
-        raw = items[0].data(int(Qt.UserRole))
+        raw = items[0].data(Qt.UserRole)
         if not isinstance(raw, str) or not raw:
             return
         self.set_selected_project_root(Path(raw))
@@ -200,4 +200,3 @@ class WelcomeProjectsPanel(QFrame):
         if selected is None:
             return
         self.set_selected_project_root(selected)
-
