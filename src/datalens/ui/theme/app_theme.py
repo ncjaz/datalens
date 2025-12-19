@@ -182,6 +182,7 @@ class AppTheme(QObject):
         Apply this theme to a QApplication via the global palette.
 
         This mirrors the V1 approach:
+
         - Window surfaces derive from ``background_color`` (dark UI background).
         - Viewports (lists/trees/inputs) use slightly different roles (Base /
           AlternateBase) derived from the same background to create the "two

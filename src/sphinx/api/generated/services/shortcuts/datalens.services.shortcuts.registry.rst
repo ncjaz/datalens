@@ -1,27 +1,17 @@
-﻿datalens.services.shortcuts.registry
-====================================
+﻿registry
+========
+
+.. currentmodule:: datalens.services.shortcuts.registry
+
+**Full import path:** ``datalens.services.shortcuts.registry``
+
+.. code-block:: python
+
+   from datalens.services.shortcuts import registry
+   # or (import a symbol defined in the module)
+   from datalens.services.shortcuts.registry import <symbol>
 
 .. automodule:: datalens.services.shortcuts.registry
-
-   
-   .. rubric:: Functions
-
-   .. autosummary::
-   
-      dataclass
-   
-   .. rubric:: Classes
-
-   .. autosummary::
-   
-      Callable
-      GestureBindingSpec
-      Mapping
-      RegisteredCommand
-      RegisteredGesture
-      RegisteredPage
-      ShortcutCommandSpec
-      ShortcutPageSpec
-      ShortcutRegistry
-      defaultdict
-   
+   :members:
+   :undoc-members:
+   :show-inheritance:

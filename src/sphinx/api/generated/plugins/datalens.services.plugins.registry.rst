@@ -1,27 +1,17 @@
-﻿datalens.services.plugins.registry
-==================================
+﻿registry
+========
+
+.. currentmodule:: datalens.services.plugins.registry
+
+**Full import path:** ``datalens.services.plugins.registry``
+
+.. code-block:: python
+
+   from datalens.services.plugins import registry
+   # or (import a symbol defined in the module)
+   from datalens.services.plugins.registry import <symbol>
 
 .. automodule:: datalens.services.plugins.registry
-
-   
-   .. rubric:: Functions
-
-   .. autosummary::
-   
-      dataclass
-      replace
-   
-   .. rubric:: Classes
-
-   .. autosummary::
-   
-      Enum
-      Path
-      PluginDefinition
-      PluginDefinitionOverride
-      PluginLocation
-      PluginOrigin
-      PluginRecord
-      PluginRegistry
-      PluginRequirements
-   
+   :members:
+   :undoc-members:
+   :show-inheritance:

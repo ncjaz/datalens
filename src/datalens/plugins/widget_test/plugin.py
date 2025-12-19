@@ -1,23 +1,44 @@
 from __future__ import annotations
 
+import threading
 import time
 
-from datalens.core.logging import get_logger
-from datalens.core.logging import bind_log_context
-from datalens.domain.plugin import PluginId
-from datalens.domain.system.shortcuts import (
+from datalens.api.plugins import (
+    BasePlugin,
+    CapabilityProvider,
+    CommandContext,
     GestureBindingSpec,
     GestureId,
+    PluginAppContext,
+    PluginFutureResult,
+    PluginId,
+    PluginProjectContext,
+    RegisteredHandler,
     ShortcutCommandId,
     ShortcutCommandSpec,
     ShortcutPageSpec,
     ShortcutScope,
     ShortcutSectionSpec,
 )
-from datalens.services.plugins.runtime import BasePlugin, PluginAppContext, PluginProjectContext, PluginFutureResult
+from datalens.core.logging import bind_log_context, get_logger
 
 
 log = get_logger(__name__)
+
+
+class _CounterCapability:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._value = 0
+
+    def get(self) -> int:
+        with self._lock:
+            return int(self._value)
+
+    def increment(self, amount: int = 1) -> int:
+        with self._lock:
+            self._value += int(amount)
+            return int(self._value)
 
 
 class WidgetTestPlugin(BasePlugin):
@@ -39,6 +60,9 @@ class WidgetTestPlugin(BasePlugin):
     - `on_defocus` then `on_focus` when switching active workspaces
     """
 
+    def __init__(self) -> None:
+        self._counter = _CounterCapability()
+
     @property
     def plugin_id(self) -> PluginId:
         return PluginId('widget_test')
@@ -49,6 +73,58 @@ class WidgetTestPlugin(BasePlugin):
         Do lightweight registration only (menus, actions, capability providers).
         Avoid blocking I/O and long computations here.
         """
+        ctx.app.capabilities.register(
+            CapabilityProvider(
+                capability_id="widget_test.counter",
+                provider=self._counter,
+                owner_plugin_id=self.plugin_id,
+                description="Shared counter demo capability (widget_test).",
+            ),
+            replace_owner=True,
+        )
+
+        def echo_cmd(command_ctx: CommandContext) -> object:
+            return {"echo": command_ctx.payload, "caller_plugin_id": str(command_ctx.caller_plugin_id or "")}
+
+        def increment_cmd(command_ctx: CommandContext) -> object:
+            amount = 1
+            try:
+                amount = int(command_ctx.payload) if command_ctx.payload is not None else 1
+            except Exception:
+                amount = 1
+            return {"counter": self._counter.increment(amount), "amount": amount}
+
+        def get_counter_cmd(command_ctx: CommandContext) -> object:
+            return {"counter": self._counter.get()}
+
+        ctx.app.commands.register(
+            RegisteredHandler(
+                command_id="widget_test.echo",
+                handler=echo_cmd,
+                owner_plugin_id=self.plugin_id,
+                description="Echo payload for command bus demo.",
+            ),
+            replace=True,
+        )
+        ctx.app.commands.register(
+            RegisteredHandler(
+                command_id="widget_test.counter.increment",
+                handler=increment_cmd,
+                owner_plugin_id=self.plugin_id,
+                description="Increment widget_test counter.",
+            ),
+            replace=True,
+        )
+        ctx.app.commands.register(
+            RegisteredHandler(
+                command_id="widget_test.counter.get",
+                handler=get_counter_cmd,
+                owner_plugin_id=self.plugin_id,
+                description="Get widget_test counter.",
+            ),
+            replace=True,
+        )
+
         return None
 
     def on_unload(self, ctx: PluginAppContext) -> None:
@@ -315,7 +391,48 @@ class WidgetTestPlugin(BasePlugin):
 
         Stop pipelines and return Futures representing flush/shutdown work so core can await them.
         """
-        return None
+        # Close/flush policy simulation for Task 2 hardening:
+        # allow the widget test workspace to inject a delay/failure/timeout into
+        # the project close path so we can validate the warn/retry/force-close UX.
+        try:
+            state = ctx.app.plugin_state.handle_for(self.plugin_id)
+            enabled = bool(state.get("test.project_close.enabled") or False)
+            mode = str(state.get("test.project_close.mode") or "off")
+            delay_s = float(state.get("test.project_close.delay_seconds") or 0.0)
+        except Exception:
+            enabled = False
+            mode = "off"
+            delay_s = 0.0
+
+        if not enabled or mode in {"off", "disabled"}:
+            return None
+
+        from concurrent.futures import Future
+        import threading
+
+        fut: Future[object] = Future()
+
+        def run() -> None:
+            try:
+                if delay_s > 0:
+                    time.sleep(max(0.0, delay_s))
+                if mode == "fail":
+                    raise RuntimeError("WidgetTest: intentional close-hook failure")
+                if mode == "hang":
+                    # Never complete: used to test timeout behavior.
+                    while True:
+                        time.sleep(3600)
+                fut.set_result(object())
+            except Exception as exc:
+                fut.set_exception(exc)
+
+        with bind_log_context(plugin_id=str(self.plugin_id), operation="widget_test_close_hook", phase=mode):
+            log.info(
+                "Project close hook armed",
+                extra={"mode": mode, "delay_s": delay_s},
+            )
+        threading.Thread(target=run, name="WidgetTest(close_hook)", daemon=True).start()
+        return fut
 
 
 def get_plugin() -> BasePlugin:

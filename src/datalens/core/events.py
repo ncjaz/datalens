@@ -108,11 +108,26 @@ class FocusedWorkspaceChanged:
     timestamp_s: float
 
 
+@dataclass(frozen=True)
+class PluginDefinitionsChanged:
+    """
+    Published when discovered plugin metadata changes (e.g. settings overrides).
+
+    This is intended for UI refreshes (Manage Plugins, Preferences nav grouping,
+    workspace sidebar labels) without requiring a restart.
+    """
+
+    plugin_ids: tuple[PluginId, ...]
+    fields: tuple[str, ...] = ()
+    timestamp_s: float = 0.0
+
+
 class EventHub:
     """
     App-wide event hub for semantic coordination across UI/services/plugins.
 
     Design intent:
+
     - :meth:`publish` is non-blocking (enqueue + schedule one UI drain tick).
     - subscriber callbacks are delivered queued on the UI thread by default.
     - callbacks must be fast; heavy work should be scheduled onto background
@@ -133,6 +148,7 @@ class EventHub:
     PLUGIN_DISABLED: EventName = "PluginDisabled"
     PLUGINS_ENABLED_CHANGED: EventName = "PluginsEnabledChanged"
     FOCUSED_WORKSPACE_CHANGED: EventName = "FocusedWorkspaceChanged"
+    PLUGIN_DEFINITIONS_CHANGED: EventName = "PluginDefinitionsChanged"
 
     # Cross-cutting (from docs/events.md, implemented as names only for now)
     MEDIA_LIST_UPDATED: EventName = "MediaListUpdated"

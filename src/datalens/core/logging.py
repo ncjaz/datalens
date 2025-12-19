@@ -5,17 +5,20 @@ This module provides a single, async, app-wide logging pipeline suitable for
 Qt applications (non-blocking UI) and a plugin runtime (strong attribution).
 
 Design:
+
 - All logs enqueue from the caller thread via a QueueHandler (O(1)).
 - A QueueListener thread performs formatting + file writes (RotatingFileHandler).
 - A bounded queue drops records on overflow (never block UI).
 
 Attribution:
+
 - Records are enriched with fields like `layer`, `subsystem`, `execution`,
   `plugin_id`, and optional hook/migration metadata.
 - Most fields are inferred from the logger name (`__name__`) and current thread,
   with overrides supported via context binding or LoggerAdapter extras.
 
 Pairing / related systems:
+
 - Plugin lifecycle: `datalens/services/plugins/runtime/host.py`
 - Shared executors that should propagate logging context:
   - DB: `datalens/services/db/project_db.py`
@@ -559,13 +562,15 @@ def bind_loader_dialog_sink(
     Bind a loader dialog sink for the current execution context.
 
     When bound, logs may be mirrored into the active loader dialog depending on
-    `policy`:
+    `policy`.
 
-    - ``extra={'progress': True}`` (or `log.progress(...)`) is mirrored when
-      ``policy.show_log_progress`` is True.
-    - Regular logs can optionally be mirrored by level (INFO/WARNING/ERROR/CRITICAL).
+    - Progress logs (``extra={'progress': True}`` or ``log.progress(...)``) are
+      mirrored when ``policy.show_log_progress`` is True.
+    - Non-progress logs can optionally be mirrored by severity (INFO/WARNING/
+      ERROR/CRITICAL).
 
     Notes:
+
     - This is a UX channel, not a security boundary.
     - The sink must be thread-safe and must not touch Qt widgets directly.
       The loader runner provides a sink that routes to the UI thread.

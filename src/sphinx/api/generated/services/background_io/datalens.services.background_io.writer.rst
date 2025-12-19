@@ -1,28 +1,17 @@
-﻿datalens.services.background\_io.writer
-=======================================
+﻿writer
+======
+
+.. currentmodule:: datalens.services.background_io.writer
+
+**Full import path:** ``datalens.services.background_io.writer``
+
+.. code-block:: python
+
+   from datalens.services.background_io import writer
+   # or (import a symbol defined in the module)
+   from datalens.services.background_io.writer import <symbol>
 
 .. automodule:: datalens.services.background_io.writer
-
-   
-   .. rubric:: Functions
-
-   .. autosummary::
-   
-      _atomic_write_bytes
-      _atomic_write_text
-      dataclass
-      default_io_writer
-      get_logger
-   
-   .. rubric:: Classes
-
-   .. autosummary::
-   
-      Any
-      Callable
-      Future
-      IoWriter
-      Path
-      TypeVar
-      _IoTask
-   
+   :members:
+   :undoc-members:
+   :show-inheritance:

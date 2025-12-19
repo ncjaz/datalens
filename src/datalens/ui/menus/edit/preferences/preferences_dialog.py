@@ -19,6 +19,8 @@ from PySide6.QtWidgets import (
 )
 
 from datalens.core.context import get_app_context
+from datalens.core.events import EventHub
+from datalens.domain.plugin import PluginId
 from datalens.ui.qt_settings import QSettingsScope
 from datalens.ui.menus.edit.preferences.pages.file_paths import FilePathsPage
 from datalens.ui.menus.edit.preferences.pages.keyboard_shortcuts import KeyboardShortcutsPreferencesPage
@@ -83,6 +85,7 @@ class PreferencesDialog(QDialog):
         self._key_to_index: dict[str, int] = {}
         self._dynamic_nav_parents: dict[str, QTreeWidgetItem] = {}
         self._dynamic_nav_providers: dict[str, object] = {}
+        self._unsub_plugin_defs_changed: object | None = None
 
         ui_parent = self._add_nav_item("ui", "User Interface", None)
         self._add_page("ui", "User Interface", UserInterfacePreferencesPage())
@@ -97,6 +100,7 @@ class PreferencesDialog(QDialog):
         shortcuts_parent = self._add_nav_item("keyboard_shortcuts", "Keyboard Shortcuts", None)
         self._add_page("keyboard_shortcuts", "Keyboard Shortcuts", KeyboardShortcutsPreferencesPage())
         self._register_dynamic_children("keyboard_shortcuts", shortcuts_parent, self._shortcut_plugins_provider)
+        self._subscribe_dynamic_nav_events()
 
         nav.currentItemChanged.connect(self._on_nav_changed)
         nav.expandAll()
@@ -121,6 +125,31 @@ class PreferencesDialog(QDialog):
         self._restore_ui_state()
         if self._initial_page_key:
             self.set_current_page(self._initial_page_key)
+
+    def _subscribe_dynamic_nav_events(self) -> None:
+        """
+        Subscribe to semantic events that should trigger a nav rebuild.
+
+        Example: editing a plugin `group` in Manage Plugins should immediately
+        re-group the Keyboard Shortcuts children under the updated group names.
+        """
+        try:
+            app_ctx = get_app_context()
+        except Exception:
+            return
+
+        def on_defs_changed(_payload: object) -> None:
+            try:
+                self._refresh_dynamic_children()
+                self._nav.expandAll()
+            except Exception:
+                return
+
+        try:
+            sub = app_ctx.events.subscribe(EventHub.PLUGIN_DEFINITIONS_CHANGED, on_defs_changed)
+            self._unsub_plugin_defs_changed = sub.unsubscribe
+        except Exception:
+            self._unsub_plugin_defs_changed = None
 
     def showEvent(self, event) -> None:  # type: ignore[override]
         super().showEvent(event)
@@ -160,22 +189,35 @@ class PreferencesDialog(QDialog):
             except Exception:
                 continue
             try:
-                for child_key, title in items:
-                    child_key = str(child_key).strip()
-                    title = str(title).strip()
-                    if not child_key or not title:
-                        continue
-                    self._add_nav_item(f"{base_key}/{child_key}", title, parent)
+                # Provider may return a group->children mapping for two-level nav.
+                if isinstance(items, dict):
+                    for group_title, children in items.items():
+                        group_title = str(group_title).strip() or "Other"
+                        # Group nodes are organizational only; selecting them shows the base page.
+                        group_item = self._add_nav_item(base_key, group_title, parent)
+                        for child_key, title in children:
+                            child_key = str(child_key).strip()
+                            title = str(title).strip()
+                            if not child_key or not title:
+                                continue
+                            self._add_nav_item(f"{base_key}/{child_key}", title, group_item)
+                else:
+                    for child_key, title in items:
+                        child_key = str(child_key).strip()
+                        title = str(title).strip()
+                        if not child_key or not title:
+                            continue
+                        self._add_nav_item(f"{base_key}/{child_key}", title, parent)
             except Exception:
                 continue
 
-    def _shortcut_plugins_provider(self) -> list[tuple[str, str]]:
+    def _shortcut_plugins_provider(self) -> dict[str, list[tuple[str, str]]]:
         """
-        Return (plugin_id, plugin_name) for plugins that registered shortcut pages.
+        Return group -> [(plugin_id, plugin_name)] for plugins that registered shortcut pages.
 
         Note: This only includes enabled plugins (disabled plugins are not imported).
         """
-        out: list[tuple[str, str]] = []
+        out: dict[str, list[tuple[str, str]]] = {}
         snap = get_app_context().shortcuts.snapshot()
         if not snap.pages:
             return out
@@ -186,8 +228,31 @@ class PreferencesDialog(QDialog):
                 continue
             name = str(page.get("plugin_name") or pid).strip() or pid
             plugin_name_by_id.setdefault(pid, name)
-        for plugin_id, plugin_name in sorted(plugin_name_by_id.items(), key=lambda kv: kv[1].lower()):
-            out.append((plugin_id, plugin_name))
+
+        # Resolve grouping from the discovered registry (includes overrides).
+        try:
+            app_ctx = get_app_context()
+            host = getattr(app_ctx, "plugin_host", None)
+            registry = getattr(host, "registry", None) if host is not None else None
+        except Exception:
+            registry = None
+
+        for plugin_id, plugin_name in plugin_name_by_id.items():
+            group = "Other"
+            if registry is not None:
+                try:
+                    record = registry.get(PluginId(plugin_id))
+                    if record is not None:
+                        raw = getattr(record.definition, "group", None)
+                        if isinstance(raw, str) and raw.strip():
+                            group = raw.strip()
+                except Exception:
+                    group = "Other"
+            out.setdefault(group, []).append((plugin_id, plugin_name))
+
+        for group, items in list(out.items()):
+            out[group] = sorted(items, key=lambda kv: kv[1].lower())
+        out = dict(sorted(out.items(), key=lambda kv: kv[0].lower()))
         return out
 
     def _add_nav_item(self, key: str, title: str, parent: QTreeWidgetItem | None) -> QTreeWidgetItem:
@@ -339,6 +404,13 @@ class PreferencesDialog(QDialog):
             pass
 
     def closeEvent(self, event) -> None:
+        try:
+            unsub = self._unsub_plugin_defs_changed
+            self._unsub_plugin_defs_changed = None
+            if callable(unsub):
+                unsub()
+        except Exception:
+            pass
         self._persist_ui_state()
         super().closeEvent(event)
 

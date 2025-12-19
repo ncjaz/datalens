@@ -10,6 +10,75 @@ notifications) that multiple tabs/services may need to react to.
 - Good fits: “active project changed”, “media discovered”, “annotations changed”.
 - Avoid: high-rate payloads like video frames.
 
+## Capabilities (provider registry)
+
+Use **capabilities** for *shared providers* (objects/functions) that other plugins/systems can discover
+without importing each other or reaching into each other's DB tables.
+
+- A plugin registers a provider under a stable string id, for example `widget_test.counter`.
+- Consumers look up the provider via `app_ctx.capabilities.get("widget_test.counter")`.
+- Multiple providers can exist for the same id; highest `priority` wins.
+
+This is a coordination mechanism (not a security boundary).
+
+Example (provider registration in `on_load`):
+
+```python
+from datalens.services.capabilities import CapabilityProvider
+
+ctx.app.capabilities.register(
+    CapabilityProvider(
+        capability_id="widget_test.counter",
+        provider=my_counter_provider,
+        owner_plugin_id=self.plugin_id,
+        description="Shared counter demo capability.",
+    ),
+    replace_owner=True,
+)
+```
+
+Example (consumer usage):
+
+```python
+provider = app_ctx.capabilities.get("widget_test.counter")
+if provider is not None:
+    print(provider.get())
+```
+
+## Commands (request/response bus)
+
+Use **commands** for request/response style coordination (a caller asks for something and receives a result).
+
+- Commands run on a background threadpool by default: safe to call from the UI thread.
+- The caller gets a `Future` and must not block the UI thread waiting for it.
+- Plugin disable/unload can remove its handlers (`unregister_owner`).
+
+Example (handler registration in `on_load`):
+
+```python
+from datalens.services.commands import RegisteredHandler
+
+ctx.app.commands.register(
+    RegisteredHandler(
+        command_id="widget_test.echo",
+        handler=lambda cmd: {"echo": cmd.payload},
+        owner_plugin_id=self.plugin_id,
+    ),
+    replace=True,
+)
+```
+
+Example (dispatch + UI-safe completion):
+
+```python
+fut = app_ctx.commands.dispatch("widget_test.echo", {"hello": "world"})
+
+def done():
+    print(fut.result())
+
+# Use Qt queued delivery (QTimer.singleShot(0, done)) or a signal to marshal to the UI thread.
+```
+
 ## Runtime context (AppContext)
 
 V2 uses a small runtime context object to hold process resources and shared services:
@@ -37,6 +106,21 @@ V2 uses two complementary mechanisms (documented in more detail under
 
 1. **Capability registry**: share data/services without importing other plugins.
 2. **Command bus**: request actions from other plugins with explicit accept/reject.
+
+## Sharing contract: events vs capabilities vs commands
+
+These three mechanisms are intentionally distinct. Use them consistently so plugins
+stay decoupled and the UI stays responsive.
+
+- **Events** (`EventHub`): broadcast *notifications* (“X happened”) with low-rate payloads.
+  - Example: “active project changed”, “focused workspace changed”.
+  - Subscribers must be fast; heavy work must be explicitly offloaded.
+- **Capabilities** (`CapabilityRegistry`): publish *providers* (“here is a service/value you can query”).
+  - Example: `capture.live_source` provider, `models.catalog` provider.
+  - Consumers must treat capabilities as optional and handle “provider offline”.
+- **Commands** (`CommandBus`): request/response *actions* (“please do X”) without imports.
+  - Example: “start stream”, “open project”, “export dataset”.
+  - Commands execute off the UI thread; callers must not block waiting for results.
 
 ```mermaid
 flowchart LR

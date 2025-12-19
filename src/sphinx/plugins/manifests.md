@@ -51,18 +51,19 @@ UI idea:
 
 ## Dependencies (module checks + install)
 
-V1 includes feature dependency checks and an installation workflow. V2 should do
-the same at the plugin level.
+V1 includes feature dependency checks and an installation workflow. V2 is
+building toward the same, but today the story is intentionally simpler.
 
 Recommended approach:
 
 - Each plugin can ship a `requirements.txt` (or equivalent) in its plugin
   directory.
-- The plugin loader reads that file to determine which packages to check/install.
-- The welcome screen (or plugin manager UI) checks whether those requirements
-  are satisfied and can offer an “Install” action.
-- If `PluginDefinition.manual_pip_requirements` is set, those packages are
-  treated as "manual install required" (checked but not auto-installed).
+- The plugin loader reads that file for display/diagnostics (so we can show what
+  a plugin depends on).
+- **No automatic installation is performed yet**. Dependencies must already be
+  installed in the active Python environment.
+- Future: a plugin manager workflow can check whether those requirements are
+  satisfied and offer a guided install experience.
 
 Why derive from `requirements.txt`?
 

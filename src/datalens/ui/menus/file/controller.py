@@ -43,6 +43,11 @@ class QtFileMenuController(FileMenuController):
         if callable(fn):
             fn()
 
+    def restart_app(self) -> None:
+        fn = getattr(self._main_window, "restart_app", None)
+        if callable(fn):
+            fn()
+
     def quit_app(self) -> None:
         app = QApplication.instance()
         if app is not None:

@@ -1,38 +1,17 @@
-﻿datalens.infra.background.loader\_runner
-========================================
+﻿loader_runner
+=============
+
+.. currentmodule:: datalens.infra.background.loader_runner
+
+**Full import path:** ``datalens.infra.background.loader_runner``
+
+.. code-block:: python
+
+   from datalens.infra.background import loader_runner
+   # or (import a symbol defined in the module)
+   from datalens.infra.background.loader_runner import <symbol>
 
 .. automodule:: datalens.infra.background.loader_runner
-
-   
-   .. rubric:: Functions
-
-   .. autosummary::
-   
-      Slot
-      _callable_debug_name
-      _merge_log_extra
-      bind_loader_dialog_sink
-      dataclass
-      get_logger
-      run_with_loader
-      run_with_loader_sequence
-   
-   .. rubric:: Classes
-
-   .. autosummary::
-   
-      Any
-      LoaderContext
-      LoaderDialogSinkPolicy
-      LoaderStage
-      LoaderWorker
-      QTimer
-      Sequence
-      _ResultRouter
-   
-   .. rubric:: Exceptions
-
-   .. autosummary::
-   
-      LoaderCancelled
-   
+   :members:
+   :undoc-members:
+   :show-inheritance:

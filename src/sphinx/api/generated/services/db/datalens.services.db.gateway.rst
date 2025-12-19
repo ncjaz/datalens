@@ -1,30 +1,17 @@
-﻿datalens.services.db.gateway
-============================
+﻿gateway
+=======
+
+.. currentmodule:: datalens.services.db.gateway
+
+**Full import path:** ``datalens.services.db.gateway``
+
+.. code-block:: python
+
+   from datalens.services.db import gateway
+   # or (import a symbol defined in the module)
+   from datalens.services.db.gateway import <symbol>
 
 .. automodule:: datalens.services.db.gateway
-
-   
-   .. rubric:: Functions
-
-   .. autosummary::
-   
-      configure_connection
-      contextmanager
-      execute
-      open_connection
-      query_all
-      query_one
-      transaction
-   
-   .. rubric:: Classes
-
-   .. autosummary::
-   
-      Any
-      DbGateway
-      Iterable
-      Iterator
-      Mapping
-      Path
-      Sequence
-   
+   :members:
+   :undoc-members:
+   :show-inheritance:

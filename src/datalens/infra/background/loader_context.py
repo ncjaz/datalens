@@ -30,6 +30,7 @@ class LoaderCancelled(Exception):
     Raised by loader tasks to indicate cooperative cancellation.
 
     Notes:
+
     - This is not a "failure" (it should not show error UX).
     - Cancellation is cooperative: tasks must check ``ctx.is_cancel_requested()``
       (or call ``ctx.raise_if_cancelled()``) and then exit.

@@ -1,36 +1,17 @@
-﻿datalens.core.events
-====================
+﻿events
+======
+
+.. currentmodule:: datalens.core.events
+
+**Full import path:** ``datalens.core.events``
+
+.. code-block:: python
+
+   from datalens.core import events
+   # or (import a symbol defined in the module)
+   from datalens.core.events import <symbol>
 
 .. automodule:: datalens.core.events
-
-   
-   .. rubric:: Functions
-
-   .. autosummary::
-   
-      dataclass
-      get_logger
-   
-   .. rubric:: Classes
-
-   .. autosummary::
-   
-      ActiveProjectChanged
-      Any
-      Callable
-      EventEnvelope
-      EventHub
-      EventName
-      FocusedWorkspaceChanged
-      Path
-      PluginDisabled
-      PluginEnabled
-      PluginsEnabledChanged
-      ProjectClosed
-      ProjectClosing
-      ProjectOpenFailed
-      ProjectOpened
-      Subscription
-      defaultdict
-      deque
-   
+   :members:
+   :undoc-members:
+   :show-inheritance:

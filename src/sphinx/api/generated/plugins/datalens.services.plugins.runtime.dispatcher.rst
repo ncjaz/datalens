@@ -1,24 +1,17 @@
-datalens.services.plugins.runtime.dispatcher
-============================================
+﻿dispatcher
+==========
+
+.. currentmodule:: datalens.services.plugins.runtime.dispatcher
+
+**Full import path:** ``datalens.services.plugins.runtime.dispatcher``
+
+.. code-block:: python
+
+   from datalens.services.plugins.runtime import dispatcher
+   # or (import a symbol defined in the module)
+   from datalens.services.plugins.runtime.dispatcher import <symbol>
 
 .. automodule:: datalens.services.plugins.runtime.dispatcher
-
-   
-   .. rubric:: Functions
-
-   .. autosummary::
-   
-      call_app_hook
-      call_project_hook
-      normalize_futures
-   
-   .. rubric:: Classes
-
-   .. autosummary::
-   
-      Any
-      AppContext
-      Future
-      PluginAppContext
-      PluginProjectContext
-   
+   :members:
+   :undoc-members:
+   :show-inheritance:

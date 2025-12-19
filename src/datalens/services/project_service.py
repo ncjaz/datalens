@@ -75,6 +75,11 @@ def load_project(project_root: Path, *, io: IoWriter) -> ProjectContext:
     """
     _require_not_ui_thread("load_project")
     root = Path(project_root)
+    # Guard: do not allow projects rooted in dot-prefixed folders (e.g. ".datalens").
+    # These are typically reserved for hidden/internal app data and are easy to select
+    # accidentally on some platforms.
+    if root.name.startswith(".") and root.name not in {".", ".."}:
+        raise RuntimeError(f"Invalid project folder name (starts with '.'): {root.name}")
     root.mkdir(parents=True, exist_ok=True)
 
     db_path = project_db_path(root)
@@ -212,6 +217,7 @@ def open_project_with_plugins(
         stage or background pipeline.
 
     Notes:
+
     - Project meta generation is scheduled only after plugin hooks succeed.
     - If plugin migrations fail, the project is closed and `active_project` is
       cleared before raising.
@@ -228,12 +234,23 @@ def open_project_with_plugins(
         except Exception:
             return
 
+    project_root = Path(project_root)
     try:
+        for hook in list(getattr(app_ctx, "pre_project_open_hooks", ())):
+            try:
+                hook(project_root)
+            except Exception:
+                log.warning(
+                    "Pre-project-open hook failed (best-effort)",
+                    extra={"operation": "project_open", "phase": "pre_hook_error"},
+                    exc_info=True,
+                )
+
         if app_ctx.active_project is not None:
             emit("Closing previous project...")
             close_project_blocking(app_ctx, timeout_seconds=close_timeout_seconds, reason="switch")
 
-        project = load_project(Path(project_root), io=app_ctx.io)
+        project = load_project(project_root, io=app_ctx.io)
 
         # Set active_project early so downstream code can rely on gating, but do
         # not schedule derived metadata until the project is fully "ready".
@@ -252,6 +269,16 @@ def open_project_with_plugins(
                     fut.result(timeout=plugin_opened_timeout_seconds)
 
         schedule_project_meta_write(app_ctx, project)
+
+        for hook in list(getattr(app_ctx, "post_project_open_hooks", ())):
+            try:
+                hook(project)
+            except Exception:
+                log.warning(
+                    "Post-project-open hook failed (best-effort)",
+                    extra={"operation": "project_open", "phase": "post_hook_error"},
+                    exc_info=True,
+                )
         return project
     except ProjectCloseError:
         # Preserve close error shape for callers that want to special-case it.
@@ -395,6 +422,32 @@ def close_project_blocking(
             cause=hook_errors[0],
         )
 
+    # Failure injection (dev harness): widget_test can simulate db/io flush failures.
+    # This is strictly for validating close UX; it is in-memory only (PluginStateRegistry).
+    try:
+        from datalens.domain.plugin import PluginId
+
+        st = app_ctx.plugin_state.handle_for(PluginId("widget_test"))
+        if bool(st.get("test.project_close.enabled") or False):
+            db_mode = str(st.get("test.project_close.db_mode") or "off")
+            if db_mode == "fail":
+                raise ProjectCloseError(
+                    phase="db_flush",
+                    message="Simulated DB flush failure (widget_test)",
+                    cause=RuntimeError("widget_test db_flush=fail"),
+                )
+            if db_mode == "timeout":
+                raise ProjectCloseError(
+                    phase="db_flush",
+                    message="Simulated DB flush timeout (widget_test)",
+                    cause=TimeoutError("widget_test db_flush=timeout"),
+                )
+    except ProjectCloseError:
+        raise
+    except Exception:
+        # Never let the simulation mechanism break real closes.
+        pass
+
     # 2) DB flush (authoritative project state).
     try:
         current.project_db.flush().result(timeout=remaining())
@@ -404,6 +457,30 @@ def close_project_blocking(
             message="Project DB flush failed; project remains open",
             cause=exc,
         )
+
+    # Failure injection (dev harness): widget_test can simulate io flush failures.
+    try:
+        from datalens.domain.plugin import PluginId
+
+        st = app_ctx.plugin_state.handle_for(PluginId("widget_test"))
+        if bool(st.get("test.project_close.enabled") or False):
+            io_mode = str(st.get("test.project_close.io_mode") or "off")
+            if io_mode == "fail":
+                raise ProjectCloseError(
+                    phase="io_flush",
+                    message="Simulated IO flush failure (widget_test)",
+                    cause=RuntimeError("widget_test io_flush=fail"),
+                )
+            if io_mode == "timeout":
+                raise ProjectCloseError(
+                    phase="io_flush",
+                    message="Simulated IO flush timeout (widget_test)",
+                    cause=TimeoutError("widget_test io_flush=timeout"),
+                )
+    except ProjectCloseError:
+        raise
+    except Exception:
+        pass
 
     # 3) IO flush (derived artifacts / exports / caches).
     try:

@@ -29,6 +29,8 @@ from .sections import (
     build_checkboxes_section,
     build_icons_section,
     build_loader_test_section,
+    build_project_close_policy_section,
+    build_sharing_section,
     build_shortcuts_advanced_section,
     build_shortcuts_section,
     build_toggles_section,
@@ -106,6 +108,8 @@ class WorkspaceWidget(QWidget):
         add_section("Shortcuts", self._shortcuts_section)
         add_section("Shortcuts Advanced", self._shortcuts_advanced_section)
         add_section("Loader", self._loader_test_section)
+        add_section("Sharing", self._sharing_section)
+        add_section("Project Close Policy", self._project_close_policy_section)
         add_section("Gesture Router", self._gesture_section)
         add_section("File Watcher", lambda: FileWatcherPanel(theme=self._theme, parent=content))
         content_layout.addStretch(1)
@@ -173,6 +177,9 @@ class WorkspaceWidget(QWidget):
             on_refresh_tooltip_demo=self._refresh_tooltip_demo,
             on_log_clicked=lambda: self._log.info("Clicked tooltip demo button"),
         )
+
+    def _sharing_section(self) -> QWidget:
+        return build_sharing_section(self, theme=self._theme)
 
     def _refresh_tooltip_demo(self, button: DatalensButton | None = None) -> None:
         try:
@@ -302,3 +309,5 @@ class WorkspaceWidget(QWidget):
             log=self._log,
         )
 
+    def _project_close_policy_section(self) -> QWidget:
+        return build_project_close_policy_section(self, theme=self._theme)

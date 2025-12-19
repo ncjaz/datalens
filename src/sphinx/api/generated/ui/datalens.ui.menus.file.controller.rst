@@ -1,21 +1,17 @@
-﻿datalens.ui.menus.file.controller
-=================================
+﻿controller
+==========
+
+.. currentmodule:: datalens.ui.menus.file.controller
+
+**Full import path:** ``datalens.ui.menus.file.controller``
+
+.. code-block:: python
+
+   from datalens.ui.menus.file import controller
+   # or (import a symbol defined in the module)
+   from datalens.ui.menus.file.controller import <symbol>
 
 .. automodule:: datalens.ui.menus.file.controller
-
-   
-   .. rubric:: Functions
-
-   .. autosummary::
-   
-      choose_existing_project_root
-      choose_new_project_root
-   
-   .. rubric:: Classes
-
-   .. autosummary::
-   
-      FileMenuController
-      Path
-      QtFileMenuController
-   
+   :members:
+   :undoc-members:
+   :show-inheritance:

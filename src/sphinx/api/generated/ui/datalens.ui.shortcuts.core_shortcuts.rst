@@ -1,23 +1,17 @@
-﻿datalens.ui.shortcuts.core\_shortcuts
-=====================================
+﻿core_shortcuts
+==============
+
+.. currentmodule:: datalens.ui.shortcuts.core_shortcuts
+
+**Full import path:** ``datalens.ui.shortcuts.core_shortcuts``
+
+.. code-block:: python
+
+   from datalens.ui.shortcuts import core_shortcuts
+   # or (import a symbol defined in the module)
+   from datalens.ui.shortcuts.core_shortcuts import <symbol>
 
 .. automodule:: datalens.ui.shortcuts.core_shortcuts
-
-   
-   .. rubric:: Functions
-
-   .. autosummary::
-   
-      get_app_context
-      register_core_shortcuts
-   
-   .. rubric:: Classes
-
-   .. autosummary::
-   
-      MenuControllers
-      ShortcutCommandSpec
-      ShortcutPageSpec
-      ShortcutScope
-      ShortcutSectionSpec
-   
+   :members:
+   :undoc-members:
+   :show-inheritance:

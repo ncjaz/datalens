@@ -46,15 +46,17 @@ def attach_shortcut_integration(
     """
     Attach common shortcuts integration to a widget and return a cleanup function.
 
-    Parameters:
-    - `plugin_id`: if provided and `tag_window=True`, tags the widget's top-level window
-      with this plugin id (intended for plugin popout windows).
-    - `tag_window`: whether to tag the top-level window for workspace-scoped routing.
-      Do not enable this for widgets embedded in the main window.
-    - `enable_mouse_wheel`: whether to enable global mouse/wheel chord dispatch for this
-      widget subtree.
-    - `on_shortcuts_changed`: optional callback to refresh UI (tooltips/labels). Delivered
-      on the Qt event loop via `ShortcutsService.subscribe_changed(...)`.
+    Args:
+        widget: Root widget for the integration.
+        plugin_id: If provided and `tag_window=True`, tags the widget's top-level
+            window with this plugin id (intended for plugin popout windows).
+        tag_window: Whether to tag the top-level window for workspace-scoped
+            routing. Do not enable this for widgets embedded in the main window.
+        enable_mouse_wheel: Whether to enable global mouse/wheel chord dispatch
+            for this widget subtree.
+        on_shortcuts_changed: Optional callback to refresh UI (tooltips/labels).
+            Delivered on the Qt event loop via
+            `ShortcutsService.subscribe_changed(...)`.
 
     Cleanup:
     - Removes the internal event filter and unsubscribes from shortcut changes.
@@ -130,4 +132,3 @@ __all__ = [
     "attach_shortcut_integration",
     "enable_mouse_wheel_chords",
 ]
-

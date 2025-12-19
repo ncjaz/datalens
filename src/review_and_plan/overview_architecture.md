@@ -216,5 +216,5 @@ See `datalens/src/datalens/infra/project_paths.py` and `datalens/src/review_and_
 ### In progress / next
 - [ ] Real plugin UIs (workspaces/tabs) beyond placeholders
 - [ ] V2 annotation persistence pipeline (don't lose edits)
-- [ ] Event hub / command bus / capabilities (if still desired in V2)
+- [x] Event hub / command bus / capabilities (implemented MVP)
 - [ ] File watcher/media discovery services (if still desired in V2)

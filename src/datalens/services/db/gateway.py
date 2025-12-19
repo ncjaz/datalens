@@ -12,6 +12,7 @@ def open_connection(db_path: Path, *, read_only: bool = False) -> sqlite3.Connec
     Open a SQLite connection for a project database.
 
     Notes:
+
     - Uses `check_same_thread=False` so the connection can be owned by a
       dedicated worker thread (writer/executor).
     - Applies standard pragmas via `configure_connection`.

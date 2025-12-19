@@ -1,20 +1,17 @@
-﻿datalens.ui.shortcuts.event\_filter
-===================================
+﻿event_filter
+============
+
+.. currentmodule:: datalens.ui.shortcuts.event_filter
+
+**Full import path:** ``datalens.ui.shortcuts.event_filter``
+
+.. code-block:: python
+
+   from datalens.ui.shortcuts import event_filter
+   # or (import a symbol defined in the module)
+   from datalens.ui.shortcuts.event_filter import <symbol>
 
 .. automodule:: datalens.ui.shortcuts.event_filter
-
-   
-   .. rubric:: Functions
-
-   .. autosummary::
-   
-      event_to_chord
-      is_text_input_widget
-   
-   .. rubric:: Classes
-
-   .. autosummary::
-   
-      ShortcutsEventFilter
-      ShortcutsService
-   
+   :members:
+   :undoc-members:
+   :show-inheritance:

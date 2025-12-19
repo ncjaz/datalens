@@ -111,8 +111,15 @@ class WorkspacesController:
             self._label.setText(f"{ws_line}\n\n{project_line}")
 
     def refresh_workspace_nav(self) -> None:
+        def group_key(record: PluginRecord) -> str:
+            raw = getattr(record.definition, "group", None)
+            if isinstance(raw, str) and raw.strip():
+                return raw.strip().lower()
+            return "zzzz"
+
         items: list[PluginNavItem] = []
-        for record in self._plugins:
+        records = sorted(self._plugins, key=lambda r: (group_key(r), r.definition.name.lower()))
+        for record in records:
             definition = record.definition
             # PluginDefinition does not have a single `kind`; it can expose multiple
             # features (workspace + service, etc.). Only include plugins that expose

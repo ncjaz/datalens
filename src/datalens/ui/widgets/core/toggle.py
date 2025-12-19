@@ -27,45 +27,47 @@ class Toggle(QWidget, StyledMixin):
     A themed 2-button toggle, matching the style used in DataLens V1
     (e.g., Keyboard Config window).
 
-    By default it uses the AppTheme:
+    By default it uses the AppTheme.
 
-      - base (unselected) background: theme.background_color
-      - selected background:         theme.primary_color
-      - hover: derived via theme opacity settings
+    - base (unselected) background: `theme.background_color`
+    - selected background: `theme.primary_color`
+    - hover: derived via theme opacity settings
 
-    You can override colours at runtime via StyledMixin:
+    You can override colours at runtime via StyledMixin::
 
         toggle.set_base_color("#222222")      # unselected background
         toggle.set_selected_color("#00FF00")  # selected background
         toggle.set_hover_color("#333333")     # hover (both states)
         toggle.reset_colors_to_theme()
 
-    And you can adjust the pill shape globally via:
+    And you can adjust the pill shape globally via::
 
         StyledMixin.set_global_pill_style(radius, vpadding, hpadding)
 
-    Or per instance via:
+    Or per instance via::
 
         toggle.set_pill_radius(...)
         toggle.set_pill_padding(vpad, hpad)
 
-    Additional per-toggle overrides:
+    Additional per-toggle overrides::
 
         toggle.set_border_color("#FF00FF")
 
-    Enable/disable helpers:
+    Enable/disable helpers::
 
         toggle.disable()
         toggle.enable()
         toggle.set_disabled(True/False)
 
-    Example:
+    Example::
+
         toggle = Toggle(
             theme=ctx.app_theme,
             left=ToggleOption("global", "Global"),
             right=ToggleOption("project", "Project"),
         )
         toggle.selectionChanged.connect(...)
+
     """
 
     # Emits ID of the selected option
@@ -137,13 +139,16 @@ class Toggle(QWidget, StyledMixin):
     def apply_theme(self, theme: AppTheme) -> None:
         """
         Apply theme colours to the widget.
+
         Called when theme changes or on construction.
 
         Respects any user-defined overrides for:
-          - base (unselected) background
-          - selected background
-          - hover background
-        And uses the StyledMixin pill radius / padding for shape.
+
+        - base (unselected) background
+        - selected background
+        - hover background
+
+        Uses the `StyledMixin` pill radius / padding for shape.
         """
         self._theme = theme
         s = theme.settings

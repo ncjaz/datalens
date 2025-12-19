@@ -82,9 +82,14 @@ Core-owned tables (reserved):
 
 - `app_meta`
 - `plugin_kv`
+- `plugin_meta`
 
 Core code must never modify plugin-owned tables. Plugins manage their own tables
 and migrations.
+
+Plugins should create/migrate their own tables during `on_project_migrate(...)`.
+For convenience, plugins can use `datalens.services.db.plugin_migrations.run_plugin_migrations(...)`
+to apply versioned migrations and update their `plugin_meta` row (non-blocking; runs on the DB thread).
 
 ### Readiness
 

@@ -123,6 +123,17 @@ Plugins are notified through `PluginHost` lifecycle hooks:
 
 There is not yet a dedicated `on_unload`/`on_disable` hook; today plugins are effectively "enabled for this run". If/when we add runtime enable/disable, we need explicit spin-down hooks and event unsubscription guidance.
 
+## App-level project open hooks (core developer entrypoints)
+
+In addition to plugin hooks, core/app developers can register app-level entrypoints on the `AppContext`:
+
+- `AppContext.register_pre_project_open_hook(hook: Callable[[Path], None])`
+  - Runs on the project open worker thread immediately before the open/switch begins.
+- `AppContext.register_post_project_open_hook(hook: Callable[[ProjectContext], None])`
+  - Runs on the project open worker thread after the project is attached and ready (after plugin hooks and meta scheduling).
+
+These hooks are best-effort: exceptions are logged and do not abort the open pipeline.
+
 Practical guidance for plugin authors:
 
 - Start app-scope background services in `on_load` (e.g. IPC servers, model warm-up, UI registration), but keep it non-blocking.
@@ -163,7 +174,7 @@ Status (as of 2025-12-17):
 - [x] Orchestrated open/switch pipeline exists (staged loader messages + UI-first startup flow).
 - [x] Close/flush failure UX policy exists (warn/retry/cancel/force-close via loader UX).
 - [x] Plugin hook invocation is consistent via `open_project_with_plugins`.
-- [ ] Event publication via EventHub (planned).
+- [x] Event publication via EventHub (implemented for core project + plugin lifecycle events).
 - [ ] Documentation alignment across planning docs (ongoing).
 
 Notes:
@@ -179,6 +190,7 @@ Notes:
    - if we adopt UI-first startup: show main window first, then run the open pipeline (loader overlay/flow)
 3) Implement close/flush failure UX policy
    - define timeout defaults; warn/retry/block behavior
+   - centralize defaults in a single policy object used by UI orchestration (see `datalens/src/datalens/services/project_close_policy.py`)
 4) Align plugin hook invocation location
    - ensure hooks are invoked consistently no matter where the open is triggered (welcome vs menu vs MRU)
 5) Event publication (depends on EventHub plan)

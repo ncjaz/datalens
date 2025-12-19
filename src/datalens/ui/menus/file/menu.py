@@ -56,6 +56,9 @@ def populate(menu: QMenu, *, controller: FileMenuController) -> FileMenuHandle:
 
     menu.addSeparator()
 
+    restart_action = menu.addAction("Restart")
+    restart_action.triggered.connect(lambda *_: controller.restart_app())
+
     quit_action = menu.addAction("Quit")
     quit_action.triggered.connect(lambda *_: controller.quit_app())
 

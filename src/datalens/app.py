@@ -116,13 +116,13 @@ def main(argv: list[str] | None = None) -> int:
     # even in environments without Qt installed.
     from PySide6.QtCore import QTimer
 
-    from datalens.infra.background.loader_runner import LoaderStage, run_with_loader, run_with_loader_sequence
+    from datalens.infra.background.loader_runner import run_with_loader
     from datalens.services.plugins.runtime.host import PluginHost
     from datalens.ui.application import DatalensApplication
     from datalens.ui.main_window import MainWindow
     from datalens.ui.theme import AppTheme
     from datalens.ui.welcome_window import WelcomeWindow
-    from datalens.services.project_service import open_project_with_plugins
+    from PySide6.QtWidgets import QMessageBox
 
     theme = AppTheme()
     app = DatalensApplication(argv, theme=theme, slow_event_threshold_ms=args.slow_event_threshold_ms)
@@ -171,90 +171,12 @@ def main(argv: list[str] | None = None) -> int:
 
             QTimer.singleShot(250, dump)
 
-        plugin_ids = set(enabled_plugin_ids or set())
-        should_open_project = bool(load_last_project and last_project_root)
-
-        if not plugin_ids and not should_open_project:
-            return
-
-        def open_project_task(ctx: LoaderContext) -> object:
-            project = open_project_with_plugins(
-                app_ctx=app.app_context,
-                project_root=last_project_root,
-                plugin_host=plugin_host,
-                plugin_migrate_timeout_seconds=60.0,
-                await_plugin_opened=False,
-                progress=ctx.log,
-            )
-            ctx.set_progress(1.0)
-            return project
-
-        def on_project_opened(project: object) -> None:
-            try:
-                main_window.on_project_changed()
-            except Exception:
-                log.warning("Failed to update main window on project open (best-effort)", exc_info=True)
-
-        def on_project_open_error(exc: Exception) -> None:
-            log.error("Failed to open project: %s", exc)
-            try:
-                main_window.on_project_changed()
-            except Exception:
-                log.warning("Failed to update main window on project open error (best-effort)", exc_info=True)
-
-        stages: list[LoaderStage] = []
-
-        if plugin_ids:
-            def enable_plugins_task(ctx: LoaderContext) -> object:
-                if plugin_host is None:
-                    return None
-                try:
-                    preview = ", ".join(sorted(str(pid) for pid in plugin_ids))
-                    ctx.log(f"Enabling {len(plugin_ids)} plugin(s): {preview}")
-                except Exception:
-                    ctx.log("Enabling selected plugins...")
-                plugin_host.set_enabled(app_ctx=app.app_context, plugin_ids=plugin_ids)
-                ctx.set_progress(1.0)
-                return None
-
-            stages.append(LoaderStage(name="Enabling selected plugins...", task=enable_plugins_task, weight=1.0))
-
-        if should_open_project:
-            stages.append(LoaderStage(name="Opening project...", task=open_project_task, weight=3.0))
-
-        def on_sequence_done(results: list[object]) -> None:
-            # Plugins are enabled in background stages; once complete, re-dispatch
-            # workspace focus so the visible workspace receives `on_focus`.
-            try:
-                main_window.on_plugins_enabled()
-            except Exception:
-                log.debug("Failed to dispatch plugin focus after enabling (best-effort)", exc_info=True)
-
-            # If a project was opened, it will be the last non-None stage result.
-            project: object | None = None
-            for item in reversed(results):
-                if item is not None:
-                    project = item
-                    break
-            if project is None:
-                try:
-                    main_window.on_project_changed()
-                except Exception:
-                    log.warning("Failed to update main window after loader sequence (best-effort)", exc_info=True)
-                return
-            on_project_opened(project)
-
-        run_with_loader_sequence(
-            parent=main_window,
-            title="Loading...",
-            stages=stages,
-            on_result=on_sequence_done,
-            on_error=on_project_open_error,
-            dialog_options={
-                "spinner_size": 80,
-                "title_point_size": 18,
-                "subtitle_point_size": 12,
-            },
+        # Delegate plugin enable + project open sequencing to the main window so
+        # startup uses the same loader UX and policy as File->Open/Switch.
+        main_window.startup_load(
+            enabled_plugin_ids=enabled_plugin_ids,
+            load_last_project=load_last_project,
+            last_project_root=last_project_root,
         )
 
     def show_welcome(settings, plugins) -> None:

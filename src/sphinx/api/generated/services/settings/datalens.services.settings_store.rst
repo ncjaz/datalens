@@ -1,29 +1,17 @@
-﻿datalens.services.settings\_store
-=================================
+﻿settings_store
+==============
+
+.. currentmodule:: datalens.services.settings_store
+
+**Full import path:** ``datalens.services.settings_store``
+
+.. code-block:: python
+
+   from datalens.services import settings_store
+   # or (import a symbol defined in the module)
+   from datalens.services.settings_store import <symbol>
 
 .. automodule:: datalens.services.settings_store
-
-   
-   .. rubric:: Functions
-
-   .. autosummary::
-   
-      _lock_for
-      default_debounced_settings_writer
-      default_settings_store
-      load_app_settings
-      replace
-      save_app_settings
-      settings_json_path
-   
-   .. rubric:: Classes
-
-   .. autosummary::
-   
-      Any
-      AppSettings
-      Callable
-      DebouncedSettingsWriter
-      Path
-      SettingsStore
-   
+   :members:
+   :undoc-members:
+   :show-inheritance:

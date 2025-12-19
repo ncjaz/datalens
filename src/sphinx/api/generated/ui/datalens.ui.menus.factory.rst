@@ -1,24 +1,17 @@
-﻿datalens.ui.menus.factory
-=========================
+﻿factory
+=======
+
+.. currentmodule:: datalens.ui.menus.factory
+
+**Full import path:** ``datalens.ui.menus.factory``
+
+.. code-block:: python
+
+   from datalens.ui.menus import factory
+   # or (import a symbol defined in the module)
+   from datalens.ui.menus.factory import <symbol>
 
 .. automodule:: datalens.ui.menus.factory
-
-   
-   .. rubric:: Functions
-
-   .. autosummary::
-   
-      create_menubar
-      register_core_shortcuts
-   
-   .. rubric:: Classes
-
-   .. autosummary::
-   
-      DatalensMenuBar
-      MenuControllers
-      QtEditMenuController
-      QtFileMenuController
-      QtHelpMenuController
-      QtPluginsMenuController
-   
+   :members:
+   :undoc-members:
+   :show-inheritance:

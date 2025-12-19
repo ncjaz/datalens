@@ -1,18 +1,17 @@
-﻿datalens.ui.menus.help.menu
-===========================
+﻿menu
+====
+
+.. currentmodule:: datalens.ui.menus.help.menu
+
+**Full import path:** ``datalens.ui.menus.help.menu``
+
+.. code-block:: python
+
+   from datalens.ui.menus.help import menu
+   # or (import a symbol defined in the module)
+   from datalens.ui.menus.help.menu import <symbol>
 
 .. automodule:: datalens.ui.menus.help.menu
-
-   
-   .. rubric:: Functions
-
-   .. autosummary::
-   
-      populate
-   
-   .. rubric:: Classes
-
-   .. autosummary::
-   
-      HelpMenuController
-   
+   :members:
+   :undoc-members:
+   :show-inheritance:

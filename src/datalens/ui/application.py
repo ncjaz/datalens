@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QApplication
 
 from datalens.core.context import AppContext, create_app_context
 from datalens.core.logging import get_logger
+from datalens.ui.diagnostics.crash_handlers import install_crash_handlers
 from datalens.ui.shortcuts import ShortcutsEventFilter
 from datalens.ui.theme import AppTheme
 
@@ -34,6 +35,8 @@ class DatalensApplication(QApplication):
     ) -> None:
         super().__init__(argv)
         self._sigint_requested = False
+        self._fatal_exception_requested = False
+        self._crash_log_path = install_crash_handlers()
 
         self._slow_event_log = get_logger("datalens.ui.events")
         self._slow_event_threshold_ms = (
@@ -107,8 +110,9 @@ class DatalensApplication(QApplication):
             )
             QTimer.singleShot(0, lambda: self.exit(130))
             return True
-        except BaseException:
-            get_logger("datalens.crash").exception(
+        except BaseException as exc:
+            crash_log = get_logger("datalens.crash")
+            crash_log.exception(
                 "Unhandled Qt event",
                 extra={
                     "operation": "qt_event",
@@ -117,7 +121,24 @@ class DatalensApplication(QApplication):
                     "event_type": int(event.type()) if isinstance(event, QEvent) else "<unknown>",
                 },
             )
-            raise
+            if not self._fatal_exception_requested:
+                self._fatal_exception_requested = True
+
+                def _show_and_quit() -> None:
+                    try:
+                        from PySide6.QtWidgets import QMessageBox
+
+                        details = f"{type(exc).__name__}: {exc}"
+                        log_path = str(self._crash_log_path) if self._crash_log_path is not None else None
+                        if log_path:
+                            details = f"{details}\n\nCrash traceback log:\n{log_path}"
+                        QMessageBox.critical(None, "DataLens Error", details)
+                    except Exception:
+                        pass
+                    self.exit(1)
+
+                QTimer.singleShot(0, _show_and_quit)
+            return True
         finally:
             if profile_event:
                 elapsed_ms = (time.perf_counter() - start) * 1000.0

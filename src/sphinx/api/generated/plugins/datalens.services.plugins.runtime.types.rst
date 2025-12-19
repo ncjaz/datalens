@@ -1,26 +1,17 @@
-datalens.services.plugins.runtime.types
-=======================================
+﻿types
+=====
+
+.. currentmodule:: datalens.services.plugins.runtime.types
+
+**Full import path:** ``datalens.services.plugins.runtime.types``
+
+.. code-block:: python
+
+   from datalens.services.plugins.runtime import types
+   # or (import a symbol defined in the module)
+   from datalens.services.plugins.runtime.types import <symbol>
 
 .. automodule:: datalens.services.plugins.runtime.types
-
-   
-   .. rubric:: Functions
-
-   .. autosummary::
-   
-      dataclass
-   
-   .. rubric:: Classes
-
-   .. autosummary::
-   
-      BasePlugin
-      PluginRecord
-      PluginRuntime
-   
-   .. rubric:: Exceptions
-
-   .. autosummary::
-   
-      PluginLoadError
-   
+   :members:
+   :undoc-members:
+   :show-inheritance:

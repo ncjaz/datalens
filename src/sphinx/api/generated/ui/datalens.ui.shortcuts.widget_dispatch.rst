@@ -1,22 +1,17 @@
-﻿datalens.ui.shortcuts.widget\_dispatch
-======================================
+﻿widget_dispatch
+===============
+
+.. currentmodule:: datalens.ui.shortcuts.widget_dispatch
+
+**Full import path:** ``datalens.ui.shortcuts.widget_dispatch``
+
+.. code-block:: python
+
+   from datalens.ui.shortcuts import widget_dispatch
+   # or (import a symbol defined in the module)
+   from datalens.ui.shortcuts.widget_dispatch import <symbol>
 
 .. automodule:: datalens.ui.shortcuts.widget_dispatch
-
-   
-   .. rubric:: Functions
-
-   .. autosummary::
-   
-      dispatch_shortcut_event
-      enable_mouse_wheel_chords
-      event_to_chord
-      is_text_input_widget
-   
-   .. rubric:: Classes
-
-   .. autosummary::
-   
-      ShortcutDispatchResult
-      ShortcutsService
-   
+   :members:
+   :undoc-members:
+   :show-inheritance:

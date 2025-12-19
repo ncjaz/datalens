@@ -1,16 +1,17 @@
-﻿datalens.ui.shortcuts.chords
-============================
+﻿chords
+======
+
+.. currentmodule:: datalens.ui.shortcuts.chords
+
+**Full import path:** ``datalens.ui.shortcuts.chords``
+
+.. code-block:: python
+
+   from datalens.ui.shortcuts import chords
+   # or (import a symbol defined in the module)
+   from datalens.ui.shortcuts.chords import <symbol>
 
 .. automodule:: datalens.ui.shortcuts.chords
-
-   
-   .. rubric:: Functions
-
-   .. autosummary::
-   
-      event_to_chord
-      format_modifiers
-      is_text_input_widget
-      mouse_button_name
-      wheel_direction_name
-   
+   :members:
+   :undoc-members:
+   :show-inheritance:

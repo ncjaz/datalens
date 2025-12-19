@@ -4,6 +4,7 @@ from PySide6.QtWidgets import QFrame, QLabel, QSizePolicy, QSpacerItem, QVBoxLay
 
 from datalens.domain.plugin import PluginDefinition, PluginId, PluginStage
 from datalens.domain.system.settings import AppSettings
+from datalens.services.settings_store import default_settings_store
 from datalens.ui.theme import AppTheme
 from datalens.ui.widgets.core.checkboxes import DatalensCheckBox
 
@@ -49,10 +50,10 @@ class WelcomeWorkspacesPanel(QFrame):
         layout.addWidget(hint)
 
         enabled = set(self._settings.enabled_plugins)
-        if not enabled and self._plugins:
+        # First run: if settings.json doesn't exist yet, default to manifest defaults.
+        # Once settings.json exists, an empty set is treated as "explicitly none enabled".
+        if not enabled and self._plugins and not default_settings_store().path.exists():
             enabled = {p.id for p in self._plugins if p.enabled_by_default}
-        if not enabled:
-            enabled = {PluginId("annotation"), PluginId("review")}
 
         self._plugin_checkboxes: dict[PluginId, DatalensCheckBox] = {}
 
@@ -83,4 +84,3 @@ class WelcomeWorkspacesPanel(QFrame):
 
     def enabled_workspaces(self) -> frozenset[PluginId]:
         return frozenset(pid for pid, cb in self._plugin_checkboxes.items() if cb.isChecked())
-

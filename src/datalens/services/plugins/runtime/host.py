@@ -49,6 +49,30 @@ class PluginHost:
     def enabled_plugins(self) -> tuple[PluginId, ...]:
         return tuple(self._enabled.keys())
 
+    @property
+    def registry(self) -> PluginRegistry:
+        """Return the discovered plugin registry (metadata)."""
+        return self._registry
+
+    def refresh_records_from_registry(self) -> None:
+        """
+        Refresh internal record caches from the underlying PluginRegistry.
+
+        This is intended for metadata-only updates (e.g. applying user overrides
+        for name/group/nav label). It does not hot-reload runtime code.
+        """
+        records = {r.definition.id: r for r in self._registry.all()}
+        self._records = records
+        # Keep enabled records in sync so UI surfaces (sidebar, dialogs) reflect overrides.
+        for pid, runtime in list(self._enabled.items()):
+            updated = records.get(pid)
+            if updated is None:
+                continue
+            try:
+                self._enabled[pid] = PluginRuntime(record=updated, instance=runtime.instance)
+            except Exception:
+                continue
+
     def get_enabled_plugin(self, plugin_id: PluginId) -> object | None:
         """Return the enabled plugin runtime instance for `plugin_id`, or None."""
         runtime = self._enabled.get(PluginId(str(plugin_id)))
@@ -192,6 +216,14 @@ class PluginHost:
                 app_ctx.shortcuts.unregister_plugin(plugin_id)
             except Exception:
                 self._log.debug("Failed to unregister plugin shortcuts (best-effort)", exc_info=True)
+            try:
+                app_ctx.capabilities.unregister_owner(plugin_id)
+            except Exception:
+                self._log.debug("Failed to unregister plugin capabilities (best-effort)", exc_info=True)
+            try:
+                app_ctx.commands.unregister_owner(plugin_id)
+            except Exception:
+                self._log.debug("Failed to unregister plugin commands (best-effort)", exc_info=True)
 
             if active_project is not None:
                 with bind_log_context(plugin_id=str(plugin_id), plugin_phase="project_close", hook="on_project_closing"):

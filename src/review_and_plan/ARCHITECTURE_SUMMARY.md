@@ -393,7 +393,7 @@ DataLens is a Qt-based desktop application for data collection, annotation, and 
 - Runtime detection
 
 **Manifest Structure**:
-```json
+```text
 {
   "models": [...],
   "dependency_bundles": {

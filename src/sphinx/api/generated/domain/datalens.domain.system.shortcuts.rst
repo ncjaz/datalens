@@ -1,27 +1,17 @@
-﻿datalens.domain.system.shortcuts
-================================
+﻿shortcuts
+=========
+
+.. currentmodule:: datalens.domain.system.shortcuts
+
+**Full import path:** ``datalens.domain.system.shortcuts``
+
+.. code-block:: python
+
+   from datalens.domain.system import shortcuts
+   # or (import a symbol defined in the module)
+   from datalens.domain.system.shortcuts import <symbol>
 
 .. automodule:: datalens.domain.system.shortcuts
-
-   
-   .. rubric:: Functions
-
-   .. autosummary::
-   
-      dataclass
-      field
-   
-   .. rubric:: Classes
-
-   .. autosummary::
-   
-      Enum
-      GestureBindingSpec
-      GesturePhase
-      NewType
-      ShortcutCommandSpec
-      ShortcutOverrides
-      ShortcutPageSpec
-      ShortcutScope
-      ShortcutSectionSpec
-   
+   :members:
+   :undoc-members:
+   :show-inheritance:

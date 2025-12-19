@@ -4,6 +4,7 @@ Plugin runtime contracts (application layer).
 This module defines the minimal runtime interface for enabled plugins.
 
 Pairing:
+
 - Runtime coordinator: `datalens/services/plugins/runtime/host.py`
 - UI selection: `datalens/ui/welcome_window.py`
 """
@@ -183,6 +184,7 @@ class ProjectAwarePlugin:
     resources later.
 
     Contract:
+
     - `on_load` may run with no project open.
     - Project-scoped work must be started in `on_project_opened` and stopped/
       flushed in `on_project_closing`.
@@ -229,6 +231,17 @@ class ProjectAwarePlugin:
         self._app_ctx = ctx.app
         self._plugin_def = ctx.plugin
         self.on_app_loaded(ctx)
+
+    def register_shortcuts(self, ctx: PluginAppContext) -> None:
+        """
+        Optional: register keyboard/mouse shortcuts at enable time.
+
+        The plugin host calls this best-effort after `on_load`. Override and use:
+
+        - `ctx.app.shortcuts.register_page(...)` to expose commands in
+          Preferences -> Keyboard Shortcuts.
+        """
+        return None
 
     def on_unload(self, ctx: PluginAppContext) -> None:
         try:

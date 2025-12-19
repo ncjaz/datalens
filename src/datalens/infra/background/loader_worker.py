@@ -122,6 +122,7 @@ class LoaderWorker(QObject):
         Request cooperative cancellation.
 
         Notes:
+
         - This does not "kill" the thread. The task must periodically check
           ``ctx.is_cancel_requested()`` (or call ``ctx.raise_if_cancelled()``)
           and then exit.

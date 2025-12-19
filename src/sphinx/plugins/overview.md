@@ -36,3 +36,13 @@ Common plugin feature kinds:
   handing out internal widgets.
 - Cross-plugin requests should go through the **command bus** (request/response),
   not direct method calls.
+
+## Stable imports
+
+Plugin code should prefer importing from `datalens.api.plugins`:
+
+```python
+from datalens.api.plugins import ProjectAwarePlugin, PluginAppContext, PluginProjectContext
+```
+
+This keeps plugins insulated from internal module reshuffles as V2 evolves.

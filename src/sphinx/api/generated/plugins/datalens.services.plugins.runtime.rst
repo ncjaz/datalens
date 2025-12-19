@@ -1,27 +1,17 @@
-﻿datalens.services.plugins.runtime
-=================================
+﻿runtime
+=======
+
+.. currentmodule:: datalens.services.plugins.runtime
+
+**Full import path:** ``datalens.services.plugins.runtime``
+
+.. code-block:: python
+
+   from datalens.services.plugins import runtime
+   # or (import a symbol defined in the module)
+   from datalens.services.plugins.runtime import <symbol>
 
 .. automodule:: datalens.services.plugins.runtime
-
-   
-   .. rubric:: Classes
-
-   .. autosummary::
-   
-      BasePlugin
-      NoopPlugin
-      PluginAppContext
-      PluginProjectContext
-      ProjectAwarePlugin
-   
-.. rubric:: Modules
-
-.. autosummary::
-   :toctree:
-   :recursive:
-
-   contracts
-   dispatcher
-   host
-   loader
-   types
+   :members:
+   :undoc-members:
+   :show-inheritance:

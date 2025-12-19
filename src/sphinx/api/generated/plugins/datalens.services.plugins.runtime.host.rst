@@ -1,35 +1,17 @@
-datalens.services.plugins.runtime.host
-======================================
+﻿host
+====
+
+.. currentmodule:: datalens.services.plugins.runtime.host
+
+**Full import path:** ``datalens.services.plugins.runtime.host``
+
+.. code-block:: python
+
+   from datalens.services.plugins.runtime import host
+   # or (import a symbol defined in the module)
+   from datalens.services.plugins.runtime.host import <symbol>
 
 .. automodule:: datalens.services.plugins.runtime.host
-
-   
-   .. rubric:: Functions
-
-   .. autosummary::
-   
-      bind_log_context
-      get_logger
-      load_plugin_instance
-   
-   .. rubric:: Classes
-
-   .. autosummary::
-   
-      Any
-      AppContext
-      EventHub
-      FocusedWorkspaceChanged
-      Future
-      PluginAppContext
-      PluginDb
-      PluginDisabled
-      PluginEnabled
-      PluginHost
-      PluginProjectContext
-      PluginRecord
-      PluginRegistry
-      PluginRuntime
-      PluginsEnabledChanged
-      ProjectContext
-   
+   :members:
+   :undoc-members:
+   :show-inheritance:

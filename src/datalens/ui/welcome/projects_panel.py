@@ -135,9 +135,16 @@ class WelcomeProjectsPanel(QFrame):
         if not raw:
             return None
         try:
-            return Path(raw)
+            p = Path(raw)
         except Exception:
             return None
+        # Guard: project roots cannot be dot-prefixed folders (e.g. ".datalens").
+        try:
+            if p.name.startswith(".") and p.name not in {".", ".."}:
+                return None
+        except Exception:
+            return None
+        return p
 
     def _best_dialog_start_dir(self) -> Path | None:
         """

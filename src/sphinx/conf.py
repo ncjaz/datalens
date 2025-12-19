@@ -150,7 +150,11 @@ source_suffix = {
     ".md": "markdown",
 }
 
-root_doc = "sphinx/index"
+# Sphinx master document (relative to this source directory).
+#
+# Note: The docs source root is `datalens/src/sphinx/`, so the root doc is
+# simply `index.rst` (not `sphinx/index.rst`).
+root_doc = "index"
 
 templates_path = ["_templates"]
 exclude_patterns: list[str] = [

@@ -31,6 +31,7 @@ class SettingsStore:
     Convenience helper around the persisted `settings.json`.
 
     Goals:
+
     - Make it easy to safely update settings without repeating load/replace/save
       boilerplate.
     - Keep writes atomic (delegates to `save_app_settings`).
