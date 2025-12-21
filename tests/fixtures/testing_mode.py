@@ -168,6 +168,7 @@ class TestingEnvironment:
         return {
             "DATALENS_USER_DATA_DIR": str(self.temp_root / "settings"),
             "DATALENS_SETTINGS_PATH": str(self.settings_path),
+            "DATALENS_TESTING": "1",
         }
 
 

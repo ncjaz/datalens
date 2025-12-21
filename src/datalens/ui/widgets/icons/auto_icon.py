@@ -67,7 +67,7 @@ def auto_icon(theme: AppTheme, *, size: int = 28, background_color: str | None =
     # "AUTO" text
     font = QFont("Arial", max(6, int(size * 0.28)), QFont.Bold)
     painter.setFont(font)
-    painter.setPen(theme.qcolor_with_alpha(theme.settings.text_color, 0.95))
+    painter.setPen(theme.qcolor_with_alpha(theme.text_color, 0.95))
 
     text_rect = pixmap.rect()
     painter.drawText(text_rect, Qt.AlignCenter, "AUTO")

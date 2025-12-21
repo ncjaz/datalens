@@ -85,7 +85,7 @@ def build(self, *, theme: AppTheme) -> None:
     controls_layout.setSpacing(12)
 
     title = QLabel("Capture", controls)
-    title.setStyleSheet(f"font-size: 18px; font-weight: 600; color: {theme.settings.text_color};")
+    title.setStyleSheet(f"font-size: 18px; font-weight: 600; color: {theme.text_color};")
     controls_layout.addWidget(title)
 
     device_group = QGroupBox("Device", controls)
@@ -187,15 +187,6 @@ def build(self, *, theme: AppTheme) -> None:
     self._save_formats.optionToggled.connect(lambda *_: self._refresh_controls())
 
     save_layout.addRow("Formats", self._save_formats)
-
-    hint = QLabel(
-        "Creates `rgb/` and `depth/` folders on the first capture.\n"
-        "If a project is open and the folder is inside the project root, files are registered into the media index.",
-        save_group,
-    )
-    hint.setWordWrap(True)
-    hint.setStyleSheet(f"color: {theme.with_alpha_hex(theme.settings.text_color, 0.70)}; font-size: 11px;")
-    save_layout.addRow("", hint)
 
     auto_size_form_layout(save_layout, save_group, scale=1.15)
     controls_layout.addWidget(save_group)

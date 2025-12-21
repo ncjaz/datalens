@@ -27,6 +27,7 @@ from datalens.ui.menus.edit.preferences.pages.keyboard_shortcuts import Keyboard
 from datalens.ui.menus.edit.preferences.pages.loader import LoaderPreferencesPage
 from datalens.ui.menus.edit.preferences.pages.plugin_preferences import PluginPreferencesPage
 from datalens.ui.menus.edit.preferences.pages.theme import ThemePreferencesPage
+from datalens.ui.menus.edit.preferences.pages.toast import ToastPreferencesPage
 from datalens.ui.menus.edit.preferences.pages.user_interface import UserInterfacePreferencesPage
 
 
@@ -94,6 +95,8 @@ class PreferencesDialog(QDialog):
         self._add_page("ui.theme", "Theme", ThemePreferencesPage())
         self._add_nav_item("ui.loader", "Loader", ui_parent)
         self._add_page("ui.loader", "Loader", LoaderPreferencesPage())
+        self._add_nav_item("ui.toast", "Toast", ui_parent)
+        self._add_page("ui.toast", "Toast", ToastPreferencesPage())
 
         self._add_nav_item("file_paths", "File Paths", None)
         self._add_page("file_paths", "File Paths", FilePathsPage())

@@ -92,9 +92,85 @@ def qapp(test_environment: TestingEnvironment) -> Generator[QApplication, None, 
     from datalens.core.logging import init_logging
     from datalens.ui.application import DatalensApplication
     from datalens.ui.theme import AppTheme
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QColor, QFont
+    from PySide6.QtWidgets import QColorDialog, QFileDialog, QFontDialog, QInputDialog, QMessageBox
+    import logging
+    import traceback
 
     # Initialize logging for tests
     init_logging(log_to_file=False)  # Don't write log files during tests
+
+    # Fail the test session if the app logs an unhandled Qt event.
+    # `DatalensApplication.notify()` catches and logs these via `datalens.crash`
+    # so they don't naturally fail pytest unless we explicitly guard.
+    crash_records: list[tuple[str, str | None]] = []
+
+    class _CrashCapture(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:  # type: ignore[override]
+            try:
+                msg = record.getMessage()
+            except Exception:
+                msg = "<unformattable LogRecord>"
+            tb = None
+            try:
+                if record.exc_info:
+                    tb = "".join(traceback.format_exception(*record.exc_info))
+            except Exception:
+                tb = None
+            crash_records.append((msg, tb))
+
+    crash_logger = logging.getLogger("datalens.crash")
+    crash_handler = _CrashCapture(level=logging.ERROR)
+    crash_logger.addHandler(crash_handler)
+    crash_logger.propagate = True
+
+    # Prevent native OS dialogs (e.g., Windows folder picker) from blocking tests.
+    # Native dialogs are not Qt widgets and can't be closed by `_close_any_popups()`.
+    QApplication.setAttribute(Qt.AA_DontUseNativeDialogs, True)
+
+    # Prevent *any* modal file dialogs from blocking automated tests.
+    # The static convenience APIs (e.g. `QFileDialog.getExistingDirectory`) are
+    # synchronous and will hang the test runner until the user interacts.
+    try:
+        QFileDialog.getExistingDirectory = staticmethod(lambda *args, **kwargs: "")
+        QFileDialog.getOpenFileName = staticmethod(lambda *args, **kwargs: ("", ""))
+        QFileDialog.getOpenFileNames = staticmethod(lambda *args, **kwargs: ([], ""))
+        QFileDialog.getSaveFileName = staticmethod(lambda *args, **kwargs: ("", ""))
+    except Exception:
+        pass
+
+    # Prevent other common modal dialogs from blocking automated tests.
+    # These static convenience APIs are synchronous (they spin a nested event loop)
+    # and will hang until the user interacts.
+    try:
+        QMessageBox.information = staticmethod(lambda *args, **kwargs: QMessageBox.Ok)
+        QMessageBox.warning = staticmethod(lambda *args, **kwargs: QMessageBox.Ok)
+        QMessageBox.critical = staticmethod(lambda *args, **kwargs: QMessageBox.Ok)
+        # Default to "No" for confirmation prompts unless a default button is provided.
+        def _question(*args, **kwargs):
+            default_button = kwargs.get("defaultButton")
+            if default_button is not None:
+                return default_button
+            return QMessageBox.No
+
+        QMessageBox.question = staticmethod(_question)
+    except Exception:
+        pass
+
+    try:
+        QInputDialog.getText = staticmethod(lambda *args, **kwargs: ("", False))
+        QInputDialog.getInt = staticmethod(lambda *args, **kwargs: (0, False))
+        QInputDialog.getDouble = staticmethod(lambda *args, **kwargs: (0.0, False))
+        QInputDialog.getItem = staticmethod(lambda *args, **kwargs: ("", False))
+    except Exception:
+        pass
+
+    try:
+        QColorDialog.getColor = staticmethod(lambda *args, **kwargs: QColor())
+        QFontDialog.getFont = staticmethod(lambda *args, **kwargs: (QFont(), False))
+    except Exception:
+        pass
 
     # Create theme and DatalensApplication
     # This will create the AppContext automatically
@@ -104,6 +180,56 @@ def qapp(test_environment: TestingEnvironment) -> Generator[QApplication, None, 
     yield app
 
     # Cleanup
+    try:
+        crash_logger.removeHandler(crash_handler)
+    except Exception:
+        pass
+
+    # Ensure UI windows are closed cleanly to avoid PySide/Qt teardown crashes.
+    try:
+        from PySide6.QtTest import QTest
+
+        app.closeAllWindows()
+        app.processEvents()
+        QTest.qWait(100)
+        app.processEvents()
+    except Exception:
+        pass
+
+    # Stop the shared settings writer thread (started by many UI flows).
+    try:
+        from datalens.services.settings_store import default_debounced_settings_writer
+
+        default_debounced_settings_writer().close()
+    except Exception:
+        pass
+
+    # Ensure Qt threadpool work is drained before interpreter teardown.
+    try:
+        from PySide6.QtCore import QThreadPool
+
+        QThreadPool.globalInstance().waitForDone(2000)
+    except Exception:
+        pass
+
+    # Ensure crash handler file handles are released so test temp dirs can be removed.
+    try:
+        from datalens.ui.diagnostics.crash_handlers import shutdown_crash_handlers
+
+        shutdown_crash_handlers()
+    except Exception:
+        pass
+
+    if crash_records:
+        lines: list[str] = ["Unhandled Qt event(s) were logged during the test run:"]
+        for i, (msg, tb) in enumerate(crash_records[:3], start=1):
+            lines.append(f"- {i}. {msg}")
+            if tb:
+                lines.append(tb)
+        if len(crash_records) > 3:
+            lines.append(f"(and {len(crash_records) - 3} more)")
+        raise AssertionError("\n".join(lines))
+
     try:
         if hasattr(app, "app_context"):
             # Close IO writer
@@ -402,6 +528,70 @@ def qapp_args():
     (e.g., disable animations, set specific styles, etc.).
     """
     return []
+
+
+@pytest.fixture(autouse=True)
+def _auto_close_stray_popups(qapp: QApplication) -> Generator[None, None, None]:
+    """
+    Close any stray popups that might have been opened during a test.
+
+    This keeps the suite robust when a control triggers a toast, dialog, or other
+    top-level popup that could steal focus or block subsequent interactions.
+    """
+    yield
+
+    import time
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QApplication, QAbstractButton, QDialog, QFileDialog, QMainWindow, QMessageBox
+
+    app = QApplication.instance()
+    if not app:
+        return
+
+    try:
+        from datalens.ui.widgets.dialogs.loader_dialog import LoaderDialog
+    except Exception:
+        LoaderDialog = None  # type: ignore[assignment]
+
+    for widget in list(app.topLevelWidgets()):
+        try:
+            if not widget.isVisible():
+                continue
+            if isinstance(widget, QMainWindow):
+                continue
+
+            if LoaderDialog is not None and isinstance(widget, LoaderDialog):
+                deadline = time.monotonic() + 5.0
+                while time.monotonic() < deadline:
+                    try:
+                        if not widget.isVisible():
+                            break
+                    except RuntimeError:
+                        break
+                    app.processEvents()
+                    QTest.qWait(50)
+                try:
+                    still_visible = widget.isVisible()
+                except RuntimeError:
+                    still_visible = False
+                if still_visible:
+                    try:
+                        for btn in widget.findChildren(QAbstractButton):
+                            if (btn.text() or "").strip().lower() == "cancel" and btn.isVisible() and btn.isEnabled():
+                                QTest.mouseClick(btn, Qt.LeftButton)
+                                break
+                    except Exception:
+                        pass
+                continue
+
+            if isinstance(widget, (QFileDialog, QMessageBox, QDialog)):
+                try:
+                    widget.reject()
+                except Exception:
+                    widget.close()
+        except Exception:
+            continue
 
 
 # Marker for tests that require the full app

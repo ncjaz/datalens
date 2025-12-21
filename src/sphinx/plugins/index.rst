@@ -17,6 +17,7 @@ background services, data sources, model integrations, and shared capabilities.
    iconography
    layout_utilities
    public_api
+   toast_notifications
    shortcuts
    ui_commands
    stability

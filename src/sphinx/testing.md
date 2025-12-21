@@ -54,7 +54,15 @@ Tests run in **testing mode**, which provides complete isolation from user data:
 
 ### Running All Tests
 
+**Windows (Recommended - Auto-activates conda environment):**
 ```bash
+cd datalens/tests
+run_tests.bat
+```
+
+**Cross-platform (Requires manual conda activation):**
+```bash
+conda activate datalens
 cd datalens/tests
 python run_tests.py
 ```
@@ -356,6 +364,96 @@ def test_project_save(test_project_root):
 def test_project_save():
     # DON'T: project = Path.home() / "my_project"
     pass
+```
+
+## Error Detection System
+
+DataLens tests use a comprehensive error detection system that catches errors even when they're handled gracefully by the application code.
+
+### How It Works
+
+The test system installs a custom logging handler (`ErrorCapturingHandler`) that monitors all log messages during widget interactions. This handler:
+
+1. **Captures ERROR and CRITICAL logs**: Any log at ERROR or CRITICAL level is captured
+2. **Captures logs with exceptions**: Even WARNING-level logs are captured if they contain exception information (`exc_info`)
+3. **Captures error keywords**: Logs containing keywords like "error", "exception", "failed", "traceback" are captured
+4. **Fails the test**: If any errors are captured during a button click or widget interaction, the test fails immediately
+
+### Why This Matters
+
+Traditional tests only catch **uncaught exceptions** that crash the test. But well-written application code often catches exceptions and logs them gracefully:
+
+```python
+try:
+    do_something()
+except Exception as e:
+    log.error(f"Failed to do something: {e}")  # Logged but not raised
+    return  # Function returns normally
+```
+
+**Without error detection**: Test passes ✓ (no crash)
+**With error detection**: Test fails ✗ (error logged)
+
+This ensures that widget interactions work **correctly**, not just that they don't crash.
+
+### Example Test Failure
+
+When a button click causes an error, you'll see:
+
+```
+AssertionError: Button 'button' in 'Toast Demo > Success Toast' caused errors:
+[ERROR] datalens.services.notifications.toast_service: Failed to show success toast: Attempt to overwrite 'message' in LogRecord
+  Error 1: [ERROR] datalens.services.notifications.toast_service
+    Message: Failed to show success toast: Attempt to overwrite 'message' in LogRecord
+    Location: e:\GitRepos\rsCapture\datalens\src\datalens\services\notifications\toast_service.py:15
+    Exception: KeyError: "Attempt to overwrite 'message' in LogRecord"
+```
+
+This provides:
+- Which button caused the error
+- Which widget group it belongs to
+- The error message
+- The source code location
+- The exception type and value
+
+### Generalized Testing Approach
+
+The test system uses a **generalized approach** that works for any plugin:
+
+1. **Discover all widgets** using the widget discovery system
+2. **Find all buttons** in each widget group (QPushButton, QToolButton)
+3. **Click every button** that is visible and enabled
+4. **Monitor for errors** during and after each click
+5. **Fail immediately** if any error is detected
+
+This means you don't need to write custom tests for each plugin - the system automatically tests all interactive widgets.
+
+### Adding Error Detection to Your Tests
+
+To add error detection to a custom test:
+
+```python
+import logging
+from helpers.widget_discovery import ErrorCapturingHandler
+
+def test_my_widget():
+    # Install error handler
+    error_handler = ErrorCapturingHandler()
+    root_logger = logging.getLogger()
+    root_logger.addHandler(error_handler)
+
+    try:
+        # Perform widget interactions
+        QTest.mouseClick(my_button, Qt.LeftButton)
+        QTest.qWait(100)
+
+        # Check for errors
+        if error_handler.has_errors():
+            error_summary = error_handler.get_error_summary()
+            raise AssertionError(f"Widget interaction caused errors:\n{error_summary}")
+    finally:
+        # Always remove the handler
+        root_logger.removeHandler(error_handler)
 ```
 
 ## Test Infrastructure Details

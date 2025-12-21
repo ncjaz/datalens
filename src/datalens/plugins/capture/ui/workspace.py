@@ -298,7 +298,7 @@ class CaptureWorkspaceWidget(CaptureWorkspaceUi):
 
         label = QLabel(msg, self._rgb_options_widget)
         label.setWordWrap(True)
-        label.setStyleSheet(f"color: {self._theme.with_alpha_hex(self._theme.settings.text_color, 0.70)}; font-size: 11px;")
+        label.setStyleSheet(f"color: {self._theme.with_alpha_hex(self._theme.text_color, 0.70)}; font-size: 11px;")
         self._rgb_options_layout.addRow("", label)
 
     def _rebuild_rgb_settings_from_specs(self, specs: tuple[CameraOptionSpec, ...], *, serial: str) -> None:

@@ -102,36 +102,36 @@ class WidgetDiscovery:
         return groups
 
     @staticmethod
-def _discover_form_layout_groups(section: str, layout: QFormLayout) -> list[WidgetGroup]:
-    """Discover groups within a QFormLayout (label-widget pairs)."""
-    groups = []
-    for row in range(layout.rowCount()):
-        label_item = layout.itemAt(row, QFormLayout.LabelRole)
-        field_item = layout.itemAt(row, QFormLayout.FieldRole)
+    def _discover_form_layout_groups(section: str, layout: QFormLayout) -> list[WidgetGroup]:
+        """Discover groups within a QFormLayout (label-widget pairs)."""
+        groups = []
+        for row in range(layout.rowCount()):
+            label_item = layout.itemAt(row, QFormLayout.LabelRole)
+            field_item = layout.itemAt(row, QFormLayout.FieldRole)
 
-        if not field_item:
-            continue
+            if not field_item:
+                continue
 
-        label_text = ""
-        if label_item and label_item.widget() and hasattr(label_item.widget(), "text"):
-            label_text = label_item.widget().text()
+            label_text = ""
+            if label_item and label_item.widget() and hasattr(label_item.widget(), "text"):
+                label_text = label_item.widget().text()
 
-        field_widget = field_item.widget()
-        if not field_widget:
-            continue
+            field_widget = field_item.widget()
+            if not field_widget:
+                continue
 
-        widgets = WidgetDiscovery._extract_widgets_from_container(field_widget)
-        if widgets:
-            groups.append(
-                WidgetGroup(
-                    section=section,
-                    control=label_text,
-                    widgets=widgets,
-                    layout=field_widget.layout() if hasattr(field_widget, "layout") else None,
-                    row_index=row,
+            widgets = WidgetDiscovery._extract_widgets_from_container(field_widget)
+            if widgets:
+                groups.append(
+                    WidgetGroup(
+                        section=section,
+                        control=label_text,
+                        widgets=widgets,
+                        layout=field_widget.layout() if hasattr(field_widget, "layout") else None,
+                        row_index=row,
+                    )
                 )
-            )
-    return groups
+        return groups
 
     @staticmethod
     def _discover_grid_layout_groups(section: str, layout: QGridLayout) -> list[WidgetGroup]:

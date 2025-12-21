@@ -23,16 +23,16 @@ Usage:
 
 Plugin Widget Testing:
     # Test a specific plugin's widgets
-    python run_tests.py integration/plugins/test_plugin_widget_groups.py --plugin=capture
+    python run_tests.py integration/plugins/test_03_plugin_widget_groups.py --plugin=capture
 
     # Test multiple plugins
-    python run_tests.py integration/plugins/test_plugin_widget_groups.py --plugin=capture --plugin=widget_test
+    python run_tests.py integration/plugins/test_03_plugin_widget_groups.py --plugin=capture --plugin=widget_test
 
     # Test all available plugins
-    python run_tests.py integration/plugins/test_plugin_widget_groups.py --test-all-plugins
+    python run_tests.py integration/plugins/test_03_plugin_widget_groups.py --test-all-plugins
 
     # Generate widget inventory report
-    python run_tests.py integration/plugins/test_plugin_widget_groups.py --plugin=capture --generate-inventory
+    python run_tests.py integration/plugins/test_03_plugin_widget_groups.py --plugin=capture --generate-inventory
 
 Environment:
     All tests run with the full DataLens application loaded. The app is
@@ -117,11 +117,17 @@ def main() -> int:
     args, unknown_args = parser.parse_known_args()
 
     # Build pytest arguments
-    pytest_args = [str(tests_dir)]
-
     if args.test_path:
         # If user specified a test path, use it instead of the directory
         pytest_args = [str(tests_dir / args.test_path)]
+    else:
+        # If no specific path is given, pytest will use testpaths from pytest.ini
+        # which defines the correct execution order:
+        # 1. integration/ui (welcome screen + preferences)
+        # 2. integration/workflows (app workflows)
+        # 3. integration/plugins (plugin tests)
+        # 4. examples (example tests)
+        pytest_args = []
 
     # Always show verbose output by default so users know what tests ran
     if args.verbose:

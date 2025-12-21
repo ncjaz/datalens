@@ -153,6 +153,25 @@ class StatusMessageRequested:
     timeout_ms: int = 3000
 
 
+@dataclass(frozen=True)
+class ToastRequested:
+    """
+    Request a toast notification to be shown.
+
+    This event allows plugins and services to trigger toast notifications
+    via the EventHub without direct coupling to the toast system.
+
+    The EventHub subscriber will handle creating and showing the toast
+    using the ToastManager.
+    """
+
+    title: str
+    message: str = ""
+    icon_type: str = "info"  # success, warning, error, info
+    duration: int = 5000  # milliseconds
+    publisher_module: str | None = None
+
+
 class EventHub:
     """
     App-wide event hub for semantic coordination across UI/services/plugins.
@@ -184,6 +203,7 @@ class EventHub:
 
     # UI (V2)
     STATUS_MESSAGE_REQUESTED: EventName = "StatusMessageRequested"
+    TOAST_REQUESTED: EventName = "ToastRequested"
 
     # Cross-cutting (from docs/events.md, implemented as names only for now)
     MEDIA_LIST_UPDATED: EventName = "MediaListUpdated"

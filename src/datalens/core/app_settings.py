@@ -9,7 +9,7 @@ from datalens.core.logging import get_logger
 from datalens.domain.system.settings import AppSettings
 from datalens.domain.plugin import PluginId
 from datalens.domain.system.user_profile import UserProfile
-from datalens.domain.system.ui import LoaderUiSettings
+from datalens.domain.system.ui import LoaderUiSettings, ToastKind, ToastTypeUiVisibility, ToastUiSettings
 from datalens.domain.system.plugin_overrides import PluginDefinitionOverride
 from datalens.domain.system.shortcuts import ShortcutOverrides
 from datalens.domain.ui.theme import DEFAULT_THEME, ThemeOpacitySettings, ThemeSettings
@@ -202,6 +202,26 @@ def _settings_from_dict(data: dict[str, Any]) -> AppSettings:
         show_log_critical=bool(loader_ui_raw.get("show_log_critical", LoaderUiSettings.show_log_critical)),
     )
 
+    toast_ui_raw = data.get("toast_ui", {})
+    if not isinstance(toast_ui_raw, dict):
+        toast_ui_raw = {}
+
+    def _parse_toast_kind(kind: ToastKind) -> ToastTypeUiVisibility:
+        raw = toast_ui_raw.get(kind.value, {})
+        if not isinstance(raw, dict):
+            raw = {}
+        return ToastTypeUiVisibility(
+            show_when_minimized=bool(raw.get("show_when_minimized", ToastTypeUiVisibility.show_when_minimized)),
+            show_when_inactive=bool(raw.get("show_when_inactive", ToastTypeUiVisibility.show_when_inactive)),
+        )
+
+    toast_ui = ToastUiSettings(
+        success=_parse_toast_kind(ToastKind.SUCCESS),
+        warning=_parse_toast_kind(ToastKind.WARNING),
+        error=_parse_toast_kind(ToastKind.ERROR),
+        info=_parse_toast_kind(ToastKind.INFO),
+    )
+
     shortcut_overrides_raw = data.get("shortcut_overrides", {})
     shortcut_bindings_raw: dict[str, dict[str, str | None]] = {}
     shortcut_gesture_bindings_raw: dict[str, dict[str, str | None]] = {}
@@ -305,6 +325,7 @@ def _settings_from_dict(data: dict[str, Any]) -> AppSettings:
         user_data_dir=user_data_dir,
         enabled_plugins=enabled_plugins,
         loader_ui=loader_ui,
+        toast_ui=toast_ui,
         shortcut_overrides=shortcut_overrides,
         plugin_settings=plugin_settings,
         plugin_overrides=plugin_overrides,

@@ -111,7 +111,7 @@ def refresh_webcam_metadata_async(self, *, device: CameraDevice) -> None:
             self._clear_form_layout(self._rgb_options_layout)
             label = QLabel("Camera settings probe failed (see logs).", self._rgb_options_widget)
             label.setWordWrap(True)
-            label.setStyleSheet(f"color: {self._theme.with_alpha_hex(self._theme.settings.text_color, 0.70)}; font-size: 11px;")
+            label.setStyleSheet(f"color: {self._theme.with_alpha_hex(self._theme.text_color, 0.70)}; font-size: 11px;")
             self._rgb_options_layout.addRow("", label)
 
     run_with_loader(
@@ -137,7 +137,7 @@ def rebuild_webcam_settings_from_specs(self, specs: tuple[CameraOptionSpec, ...]
     if not entries:
         label = QLabel("No camera settings reported by this webcam.", self._rgb_options_widget)
         label.setWordWrap(True)
-        label.setStyleSheet(f"color: {self._theme.with_alpha_hex(self._theme.settings.text_color, 0.70)}; font-size: 11px;")
+        label.setStyleSheet(f"color: {self._theme.with_alpha_hex(self._theme.text_color, 0.70)}; font-size: 11px;")
         self._rgb_options_layout.addRow("", label)
         return
 
@@ -223,7 +223,7 @@ def rebuild_webcam_settings_from_specs(self, specs: tuple[CameraOptionSpec, ...]
         )
         btn.setObjectName("CaptureAutoOptionButton")
         def update_icon(checked_state: bool) -> None:
-            bg = self._theme.accent_confirm if checked_state else self._theme.accent_cancel
+            bg = self._theme.confirm_color if checked_state else self._theme.cancel_color
             btn.setIcon(auto_icon(self._theme, size=18, background_color=bg))
 
         def update_tooltip(checked_state: bool) -> None:
@@ -357,7 +357,7 @@ def rebuild_webcam_settings_from_specs(self, specs: tuple[CameraOptionSpec, ...]
             continue
 
         label = QLabel("Unsupported", self._rgb_options_widget)
-        label.setStyleSheet(f"color: {self._theme.with_alpha_hex(self._theme.settings.text_color, 0.65)}; font-size: 11px;")
+        label.setStyleSheet(f"color: {self._theme.with_alpha_hex(self._theme.text_color, 0.65)}; font-size: 11px;")
         self._rgb_options_layout.addRow(str(spec.label), label)
 
 

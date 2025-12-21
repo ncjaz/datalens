@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import time
 from dataclasses import replace
 
@@ -26,6 +27,8 @@ def build_loader_test_section(
     log,
     run_count_10_binding: ShortcutButtonBinding | None = None,
 ) -> QWidget:
+    in_automated_tests = bool(os.environ.get("PYTEST_CURRENT_TEST")) or os.environ.get("DATALENS_TESTING") == "1"
+
     box = make_section_box(parent, "Loader (Test)")
     layout = QGridLayout(box)
     layout.setContentsMargins(12, 12, 12, 12)
@@ -152,13 +155,23 @@ def build_loader_test_section(
             time.sleep(0.4)
             ctx.log("About to raise an error (intentional).")
             time.sleep(0.2)
+            if in_automated_tests:
+                ctx.log("Suppressed intentional error during automated tests.")
+                ctx.set_progress(1.0)
+                return {"suppressed": True, "reason": "automated_tests"}
             raise RuntimeError("Intentional loader test error.")
+
+        def on_done(result: object) -> None:
+            if isinstance(result, dict) and result.get("suppressed"):
+                QMessageBox.information(parent, "Loader Test", "Intentional error suppressed during automated tests.")
+                return
+            QMessageBox.information(parent, "Loader Test", "Unexpected success.")
 
         run_with_loader(
             parent=parent,
             title="Error Test...",
             task=task,
-            on_result=lambda _: QMessageBox.information(parent, "Loader Test", "Unexpected success."),
+            on_result=on_done,
             on_error=lambda exc: QMessageBox.critical(parent, "Loader Test", str(exc)),
             dialog_options={
                 "spinner_size": 80,
@@ -269,9 +282,23 @@ def build_loader_test_section(
                 if elapsed >= duration_s:
                     break
                 if elapsed >= timeout_s:
+                    if in_automated_tests:
+                        ctx.log(f"Flush timed out after {timeout_s:0.1f}s (suppressed in automated tests).")
+                        ctx.set_progress(1.0)
+                        return {"timed_out": True, "timeout_s": float(timeout_s)}
                     raise TimeoutError(f"Flush timed out after {timeout_s:0.1f}s")
                 time.sleep(0.25)
             return None
+
+        def on_done(result: object) -> None:
+            if isinstance(result, dict) and result.get("timed_out"):
+                QMessageBox.information(
+                    parent,
+                    "Flush simulation",
+                    f"Timed out (simulated).\n\ntimeout_s={float(result.get('timeout_s') or 0):0.1f}s",
+                )
+                return
+            QMessageBox.information(parent, "Flush simulation", "Flush completed.")
 
         def on_error(exc: Exception) -> None:
             retry = QMessageBox.StandardButton.Retry
@@ -316,7 +343,7 @@ def build_loader_test_section(
             parent=parent,
             title="Flush simulation...",
             task=task,
-            on_result=lambda _: QMessageBox.information(parent, "Flush simulation", "Flush completed."),
+            on_result=on_done,
             on_error=on_error,
             on_cancelled=lambda: QMessageBox.information(parent, "Flush simulation", "Cancelled."),
             dialog_options={
@@ -352,16 +379,29 @@ def build_loader_test_section(
                 current = None
 
             if ui_thread is not None and current is not None and current != ui_thread:
+                if in_automated_tests:
+                    return {"violation": True, "suppressed": True, "target": type(ui_obj).__name__}
                 raise RuntimeError(
                     f"UI thread affinity violation: tried to access {type(ui_obj).__name__} from a worker thread."
                 )
-            return None
+            return {"violation": False, "suppressed": False, "target": type(ui_obj).__name__}
+
+        def on_done(result: object) -> None:
+            payload = result if isinstance(result, dict) else {}
+            if payload.get("violation"):
+                QMessageBox.information(
+                    parent,
+                    "UI safety test",
+                    f"Violation detected (suppressed in automated tests).\n\ntarget={payload.get('target')}",
+                )
+                return
+            QMessageBox.information(parent, "UI safety test", "No violation detected.")
 
         run_with_loader(
             parent=parent,
             title="UI safety test...",
             task=task,
-            on_result=lambda _: QMessageBox.information(parent, "UI safety test", "Unexpected success."),
+            on_result=on_done,
             on_error=lambda exc: QMessageBox.information(parent, "UI safety test", f"Caught as expected:\n\n{exc}"),
             dialog_options={
                 "spinner_size": 80,

@@ -16,6 +16,7 @@ from .project_close_policy import build_project_close_policy_section
 from .sharing import build_sharing_section
 from .shortcuts_advanced import build_shortcuts_advanced_section
 from .shortcuts_basic import build_shortcuts_section
+from .toast_demo import build_toast_demo_section
 from .toggles import build_toggles_section
 
 __all__ = [
@@ -28,5 +29,6 @@ __all__ = [
     "build_sharing_section",
     "build_shortcuts_advanced_section",
     "build_shortcuts_section",
+    "build_toast_demo_section",
     "build_toggles_section",
 ]

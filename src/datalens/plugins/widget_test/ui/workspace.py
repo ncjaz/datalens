@@ -43,6 +43,7 @@ from .sections import (
     build_sharing_section,
     build_shortcuts_advanced_section,
     build_shortcuts_section,
+    build_toast_demo_section,
     build_toggles_section,
 )
 
@@ -126,6 +127,7 @@ class WorkspaceWidget(QWidget):
         add_section("Toggles", self._toggles_section)
         add_section("Checkboxes", self._checkboxes_section)
         add_section("Icons", self._icons_section)
+        add_section("Toast Notifications", self._toast_demo_section)
         add_section("Shortcuts", self._shortcuts_section)
         add_section("Shortcuts Advanced", self._shortcuts_advanced_section)
         add_section("Loader", self._loader_test_section)
@@ -341,6 +343,12 @@ class WorkspaceWidget(QWidget):
             self,
             theme=self._theme,
             animators_out=self._icon_animators,
+        )
+
+    def _toast_demo_section(self) -> QWidget:
+        return build_toast_demo_section(
+            self,
+            theme=self._theme,
         )
 
     def _loader_test_section(self) -> QWidget:

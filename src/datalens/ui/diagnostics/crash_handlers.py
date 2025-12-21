@@ -85,5 +85,29 @@ def install_crash_handlers(*, crash_log_path: Path | None = None) -> Path | None
     return _installed_path
 
 
-__all__ = ["install_crash_handlers"]
+def shutdown_crash_handlers() -> None:
+    """
+    Best-effort cleanup for crash handlers.
 
+    This mainly exists for automated tests where an open faulthandler file handle
+    can prevent temporary directories from being cleaned up on Windows.
+    """
+    global _installed, _installed_path, _file_handle
+
+    try:
+        faulthandler.disable()
+    except Exception:
+        pass
+
+    try:
+        if _file_handle is not None:
+            _file_handle.close()
+    except Exception:
+        pass
+
+    _file_handle = None
+    _installed = False
+    _installed_path = None
+
+
+__all__ = ["install_crash_handlers", "shutdown_crash_handlers"]

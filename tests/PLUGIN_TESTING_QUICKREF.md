@@ -4,19 +4,19 @@
 
 ```bash
 # Test capture plugin
-pytest tests/integration/plugins/test_plugin_widget_groups.py --plugin=capture
+pytest tests/integration/plugins/test_03_plugin_widget_groups.py --plugin=capture
 
 # Test multiple plugins
-pytest tests/integration/plugins/test_plugin_widget_groups.py --plugin=capture --plugin=widget_test
+pytest tests/integration/plugins/test_03_plugin_widget_groups.py --plugin=capture --plugin=widget_test
 
 # Test all plugins
-pytest tests/integration/plugins/test_plugin_widget_groups.py --test-all-plugins
+pytest tests/integration/plugins/test_03_plugin_widget_groups.py --test-all-plugins
 
 # Generate widget inventory
-pytest tests/integration/plugins/test_plugin_widget_groups.py --plugin=capture --generate-inventory -v
+pytest tests/integration/plugins/test_03_plugin_widget_groups.py --plugin=capture --generate-inventory -v
 
 # Test specific plugin in isolation
-pytest tests/integration/plugins/test_plugin_widget_groups.py::test_individual_plugin_widgets[capture]
+pytest tests/integration/plugins/test_03_plugin_widget_groups.py::test_individual_plugin_widgets[capture]
 ```
 
 ## Command-Line Options

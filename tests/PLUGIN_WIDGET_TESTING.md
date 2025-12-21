@@ -8,31 +8,31 @@ Comprehensive guide for testing widget groups across plugins with automatic disc
 
 ```bash
 # Test the capture plugin
-pytest tests/integration/plugins/test_plugin_widget_groups.py --plugin=capture
+pytest tests/integration/plugins/test_03_plugin_widget_groups.py --plugin=capture
 
 # Test the widget_test plugin
-pytest tests/integration/plugins/test_plugin_widget_groups.py --plugin=widget_test
+pytest tests/integration/plugins/test_03_plugin_widget_groups.py --plugin=widget_test
 ```
 
 ### Test Multiple Plugins
 
 ```bash
 # Test both capture and widget_test plugins
-pytest tests/integration/plugins/test_plugin_widget_groups.py --plugin=capture --plugin=widget_test
+pytest tests/integration/plugins/test_03_plugin_widget_groups.py --plugin=capture --plugin=widget_test
 ```
 
 ### Test All Available Plugins
 
 ```bash
 # Test all plugins in the project
-pytest tests/integration/plugins/test_plugin_widget_groups.py --test-all-plugins
+pytest tests/integration/plugins/test_03_plugin_widget_groups.py --test-all-plugins
 ```
 
 ### Generate Widget Inventory
 
 ```bash
 # Generate detailed widget inventory report
-pytest tests/integration/plugins/test_plugin_widget_groups.py --plugin=capture --generate-inventory -v
+pytest tests/integration/plugins/test_03_plugin_widget_groups.py --plugin=capture --generate-inventory -v
 ```
 
 ---
@@ -60,7 +60,7 @@ pytest ... --plugin=capture --plugin=widget_test --plugin=another_plugin
 Test all available plugins automatically.
 
 ```bash
-pytest tests/integration/plugins/test_plugin_widget_groups.py --test-all-plugins
+pytest tests/integration/plugins/test_03_plugin_widget_groups.py --test-all-plugins
 ```
 
 This discovers and tests all plugins in the registry without needing to specify them individually.
@@ -70,7 +70,7 @@ This discovers and tests all plugins in the registry without needing to specify 
 Generate a detailed widget inventory report showing all discovered widgets, their types, and properties.
 
 ```bash
-pytest tests/integration/plugins/test_plugin_widget_groups.py --plugin=capture --generate-inventory -v
+pytest tests/integration/plugins/test_03_plugin_widget_groups.py --plugin=capture --generate-inventory -v
 ```
 
 Output includes:
@@ -123,7 +123,7 @@ For each discovered widget group, the system tests:
 ### Mode 1: Systematic Testing (Default)
 
 ```bash
-pytest tests/integration/plugins/test_plugin_widget_groups.py --plugin=capture
+pytest tests/integration/plugins/test_03_plugin_widget_groups.py --plugin=capture
 ```
 
 Tests all discovered widget groups systematically:
@@ -162,8 +162,8 @@ TOTAL               :  15 passed,   0 failed,  15 total
 
 ```bash
 # Test individual plugins in isolation
-pytest tests/integration/plugins/test_plugin_widget_groups.py::test_individual_plugin_widgets[capture]
-pytest tests/integration/plugins/test_plugin_widget_groups.py::test_individual_plugin_widgets[widget_test]
+pytest tests/integration/plugins/test_03_plugin_widget_groups.py::test_individual_plugin_widgets[capture]
+pytest tests/integration/plugins/test_03_plugin_widget_groups.py::test_individual_plugin_widgets[widget_test]
 ```
 
 Runs each plugin as a separate test case:
@@ -174,7 +174,7 @@ Runs each plugin as a separate test case:
 ### Mode 3: Inventory Generation
 
 ```bash
-pytest tests/integration/plugins/test_plugin_widget_groups.py --plugin=capture --generate-inventory -v
+pytest tests/integration/plugins/test_03_plugin_widget_groups.py --plugin=capture --generate-inventory -v
 ```
 
 Generates comprehensive widget inventory:
@@ -273,7 +273,7 @@ Generates comprehensive reports:
 
 ### Step 1: Add Plugin to Workspace Mapping
 
-Edit `test_plugin_widget_groups.py`:
+Edit `test_03_plugin_widget_groups.py`:
 
 ```python
 workspace_classes = {
@@ -296,7 +296,7 @@ elif plugin_id == "my_new_plugin":
 ### Step 3: Test It
 
 ```bash
-pytest tests/integration/plugins/test_plugin_widget_groups.py --plugin=my_new_plugin
+pytest tests/integration/plugins/test_03_plugin_widget_groups.py --plugin=my_new_plugin
 ```
 
 That's it! The system will automatically:
@@ -370,7 +370,7 @@ Benefits:
 
 **Error:** `Skipping {plugin_id}: no workspace available`
 
-**Solution:** Add plugin to `workspace_classes` mapping in `test_plugin_widget_groups.py`
+**Solution:** Add plugin to `workspace_classes` mapping in `test_03_plugin_widget_groups.py`
 
 ### No Widget Groups Discovered
 
@@ -415,27 +415,27 @@ Benefits:
 
 ```bash
 cd datalens/tests
-pytest integration/plugins/test_plugin_widget_groups.py --plugin=capture --generate-inventory -v
+pytest integration/plugins/test_03_plugin_widget_groups.py --plugin=capture --generate-inventory -v
 ```
 
 ### Test All Plugins Quickly
 
 ```bash
-pytest integration/plugins/test_plugin_widget_groups.py --test-all-plugins
+pytest integration/plugins/test_03_plugin_widget_groups.py --test-all-plugins
 ```
 
 ### Test Specific Plugin in CI
 
 ```bash
 # In your CI pipeline
-pytest integration/plugins/test_plugin_widget_groups.py::test_individual_plugin_widgets[capture] -v
+pytest integration/plugins/test_03_plugin_widget_groups.py::test_individual_plugin_widgets[capture] -v
 ```
 
 ### Debug Widget Discovery
 
 ```bash
 # Run with verbose output and inventory
-pytest integration/plugins/test_plugin_widget_groups.py --plugin=capture --generate-inventory -vv
+pytest integration/plugins/test_03_plugin_widget_groups.py --plugin=capture --generate-inventory -vv
 ```
 
 ---

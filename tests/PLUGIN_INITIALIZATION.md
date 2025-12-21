@@ -60,7 +60,7 @@ This happens AFTER plugin enabling:
 
 ### Current Implementation
 
-The test framework in `test_plugin_widget_groups.py` ensures:
+The test framework in `test_03_plugin_widget_groups.py` ensures:
 
 1. **Plugin Enablement Before Testing**
    ```python

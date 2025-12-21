@@ -361,9 +361,9 @@ def refresh_border(self) -> None:
     has_frame = bool(status.get("has_frame"))
 
     if not running or not has_frame:
-        border = self._theme.settings.accent_cancel_border
+        border = self._theme.cancel_border
     else:
-        border = self._theme.settings.accent_confirm_border
+        border = self._theme.confirm_border
 
     self._preview_frame.setStyleSheet(
         f"""

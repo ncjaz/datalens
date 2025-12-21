@@ -255,7 +255,7 @@ def rebuild_rgb_settings_from_specs(self, specs: tuple[CameraOptionSpec, ...], *
     if not entries:
         label = QLabel("No RGB settings reported by this device.", self._rgb_options_widget)
         label.setWordWrap(True)
-        label.setStyleSheet(f"color: {self._theme.with_alpha_hex(self._theme.settings.text_color, 0.70)}; font-size: 11px;")
+        label.setStyleSheet(f"color: {self._theme.with_alpha_hex(self._theme.text_color, 0.70)}; font-size: 11px;")
         self._rgb_options_layout.addRow("", label)
         return
 
@@ -314,7 +314,7 @@ def rebuild_rgb_settings_from_specs(self, specs: tuple[CameraOptionSpec, ...], *
             continue
 
         label = QLabel("Unsupported", self._rgb_options_widget)
-        label.setStyleSheet(f"color: {self._theme.with_alpha_hex(self._theme.settings.text_color, 0.65)}; font-size: 11px;")
+        label.setStyleSheet(f"color: {self._theme.with_alpha_hex(self._theme.text_color, 0.65)}; font-size: 11px;")
         self._rgb_options_layout.addRow(str(spec.label), label)
 
     self._apply_auto_option_states()
@@ -354,4 +354,3 @@ __all__ = [
     "select_default_realsense_profile",
     "update_selected_rs_profile",
 ]
-

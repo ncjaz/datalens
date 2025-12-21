@@ -604,6 +604,27 @@ def test_all_plugin_combinations_accessible(datalens_app):
 
 ## Test Ordering and Dependencies
 
+### Test Execution Philosophy
+
+To ensure a stable and logical test flow, all new tests should be structured to follow a specific execution order. This helps isolate failures and makes debugging easier. The order is as follows:
+
+1.  **Phase 1: Application Startup & Plugin Loading**
+    *   **What:** These tests should run first. They focus on the initial application launch, the welcome screen, and the plugin loading mechanism.
+    *   **Goal:** Verify that the application can start and configure itself correctly before any other interaction is attempted.
+    *   **Examples:** `integration/workflows/test_welcome_screen.py`, `integration/workflows/test_app_workflows.py`
+
+2.  **Phase 2: Core Application & UI Tests (No Addons)**
+    *   **What:** Once startup is verified, these tests check the core functionality of the application itself, independent of specific plugin logic. This includes UI components like the preferences dialog, menu actions, and project lifecycle management.
+    *   **Goal:** Ensure the main application framework is solid.
+    *   **Examples:** `integration/ui/test_example_preferences.py`, `integration/workflows/test_project_lifecycle.py`
+
+3.  **Phase 3: Plugin-Specific Tests (Addons)**
+    *   **What:** These are the final tests to run. They dive deep into the specific features and UI of individual plugins (addons).
+    *   **Goal:** Verify the business logic and workflows of each extension.
+    *   **Examples:** `integration/plugins/test_03_plugin_widget_groups.py`
+
+When adding new tests, please place them in files that align with this structure to maintain a predictable and reliable test suite.
+
 ### Test Execution Order
 
 Tests run in **alphabetical order by default** within each file.

@@ -115,6 +115,19 @@ class AppTheme(QObject):
     def warning_color(self) -> str:
         return self._settings.accent_warning
 
+    # Back-compat aliases (some UI code refers to ThemeSettings token names).
+    @property
+    def accent_confirm(self) -> str:
+        return self._settings.accent_confirm
+
+    @property
+    def accent_cancel(self) -> str:
+        return self._settings.accent_cancel
+
+    @property
+    def accent_warning(self) -> str:
+        return self._settings.accent_warning
+
     @property
     def primary_border(self) -> str:
         return self._settings.primary_border
@@ -137,6 +150,18 @@ class AppTheme(QObject):
 
     @property
     def warning_border(self) -> str:
+        return self._settings.accent_warning_border
+
+    @property
+    def accent_confirm_border(self) -> str:
+        return self._settings.accent_confirm_border
+
+    @property
+    def accent_cancel_border(self) -> str:
+        return self._settings.accent_cancel_border
+
+    @property
+    def accent_warning_border(self) -> str:
         return self._settings.accent_warning_border
 
     def qcolor(self, hex_value: str) -> QColor:
