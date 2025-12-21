@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import traceback
 
+from collections.abc import Mapping
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFrame,
@@ -23,12 +25,20 @@ from datalens.ui.shortcuts.tooltips import tooltip_with_shortcut
 from datalens.ui.theme.app_theme import AppTheme
 from datalens.ui.widgets.core.buttons import DatalensButton
 from datalens.ui.widgets.icons.animated.autodiscovery import AutoDiscoveryAnimator
+from datalens.ui.widgets.icons.animated.icon_animator import ButtonIconAnimator
+
+from datalens.api.ui_commands import (
+    ShortcutButtonBinding,
+    ShortcutCheckBoxBinding,
+    ShortcutTwoStateToggleBinding,
+)
 
 from .sections import (
     build_buttons_section,
     build_checkboxes_section,
     build_icons_section,
     build_loader_test_section,
+    build_preferences_demo_section,
     build_project_close_policy_section,
     build_sharing_section,
     build_shortcuts_advanced_section,
@@ -40,10 +50,21 @@ from .sections import (
 class WorkspaceWidget(QWidget):
     """Developer harness: preview core widgets and systems."""
 
-    def __init__(self, *, theme: AppTheme, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        theme: AppTheme,
+        parent: QWidget | None = None,
+        shortcut_button_bindings: Mapping[
+            str,
+            ShortcutButtonBinding | ShortcutCheckBoxBinding | ShortcutTwoStateToggleBinding,
+        ]
+        | None = None,
+    ) -> None:
         super().__init__(parent)
         self._theme = theme
-        self._icon_animators: list[AutoDiscoveryAnimator] = []
+        self._shortcut_button_bindings = dict(shortcut_button_bindings or {})
+        self._icon_animators: list[ButtonIconAnimator] = []
         self._log = get_logger("datalens.plugins.widget_test.ui")
         self._tooltip_unsub: object | None = None
         self._shortcut_labels: dict[str, QLabel] = {}
@@ -109,6 +130,7 @@ class WorkspaceWidget(QWidget):
         add_section("Shortcuts Advanced", self._shortcuts_advanced_section)
         add_section("Loader", self._loader_test_section)
         add_section("Sharing", self._sharing_section)
+        add_section("Plugin Preferences", self._preferences_demo_section)
         add_section("Project Close Policy", self._project_close_policy_section)
         add_section("Gesture Router", self._gesture_section)
         add_section("File Watcher", lambda: FileWatcherPanel(theme=self._theme, parent=content))
@@ -145,7 +167,7 @@ class WorkspaceWidget(QWidget):
             box,
         )
         msg.setWordWrap(True)
-        msg.setStyleSheet(f"color: {self._theme.accent_cancel}; font-size: 11px;")
+        msg.setStyleSheet(f"color: {self._theme.cancel_color}; font-size: 11px;")
         layout.addWidget(msg)
 
         tb_lines = traceback.format_exception(type(exc), exc, exc.__traceback__)
@@ -171,15 +193,20 @@ class WorkspaceWidget(QWidget):
         return box
 
     def _buttons_section(self) -> QWidget:
+        count_to_10_binding = self._shortcut_button_bindings.get("run_count_10")
         return build_buttons_section(
             self,
             theme=self._theme,
             on_refresh_tooltip_demo=self._refresh_tooltip_demo,
             on_log_clicked=lambda: self._log.info("Clicked tooltip demo button"),
+            count_to_10_binding=count_to_10_binding if isinstance(count_to_10_binding, ShortcutButtonBinding) else None,
         )
 
     def _sharing_section(self) -> QWidget:
         return build_sharing_section(self, theme=self._theme)
+
+    def _preferences_demo_section(self) -> QWidget:
+        return build_preferences_demo_section(self, theme=self._theme)
 
     def _refresh_tooltip_demo(self, button: DatalensButton | None = None) -> None:
         try:
@@ -290,10 +317,24 @@ class WorkspaceWidget(QWidget):
         return box
 
     def _toggles_section(self) -> QWidget:
-        return build_toggles_section(self, theme=self._theme)
+        demo_toggle = self._shortcut_button_bindings.get("demo_toggle_flip")
+        if not isinstance(demo_toggle, ShortcutTwoStateToggleBinding):
+            demo_toggle = None
+        return build_toggles_section(
+            self,
+            theme=self._theme,
+            demo_toggle_binding=demo_toggle,
+        )
 
     def _checkboxes_section(self) -> QWidget:
-        return build_checkboxes_section(self, theme=self._theme)
+        demo_checkbox = self._shortcut_button_bindings.get("demo_checkbox_toggle")
+        if not isinstance(demo_checkbox, ShortcutCheckBoxBinding):
+            demo_checkbox = None
+        return build_checkboxes_section(
+            self,
+            theme=self._theme,
+            demo_checkbox_binding=demo_checkbox,
+        )
 
     def _icons_section(self) -> QWidget:
         return build_icons_section(
@@ -303,10 +344,14 @@ class WorkspaceWidget(QWidget):
         )
 
     def _loader_test_section(self) -> QWidget:
+        run_count_10 = self._shortcut_button_bindings.get("run_count_10")
+        if not isinstance(run_count_10, ShortcutButtonBinding):
+            run_count_10 = None
         return build_loader_test_section(
             self,
             theme=self._theme,
             log=self._log,
+            run_count_10_binding=run_count_10,
         )
 
     def _project_close_policy_section(self) -> QWidget:

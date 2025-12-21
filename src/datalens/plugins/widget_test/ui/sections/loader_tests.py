@@ -6,6 +6,7 @@ from dataclasses import replace
 from PySide6.QtCore import QThread
 from PySide6.QtWidgets import QGridLayout, QLabel, QMessageBox, QWidget
 
+from datalens.domain.plugin import PluginId
 from datalens.core.logging import bind_log_context, current_log_context
 from datalens.domain.system.settings import AppSettings
 from datalens.infra.background.loader_context import LoaderContext
@@ -13,6 +14,7 @@ from datalens.infra.background.loader_runner import LoaderStage, run_with_loader
 from datalens.services.settings_store import default_debounced_settings_writer, default_settings_store
 from datalens.ui.theme.app_theme import AppTheme
 from datalens.ui.widgets.core.buttons import ButtonVariant, DatalensButton
+from datalens.api.ui_commands import ShortcutButtonBinding
 
 from .common import make_section_box
 
@@ -22,6 +24,7 @@ def build_loader_test_section(
     *,
     theme: AppTheme,
     log,
+    run_count_10_binding: ShortcutButtonBinding | None = None,
 ) -> QWidget:
     box = make_section_box(parent, "Loader (Test)")
     layout = QGridLayout(box)
@@ -38,7 +41,15 @@ def build_loader_test_section(
     info.setStyleSheet(f"color: {theme.with_alpha_hex(theme.text_color, 0.75)}; font-size: 11px;")
     layout.addWidget(info, 0, 0, 1, 2)
 
-    run_basic = DatalensButton("Run: Count to 10", theme, ButtonVariant.PRIMARY, box)
+    if run_count_10_binding is not None:
+        run_basic = run_count_10_binding.create_button(
+            theme=theme,
+            parent=box,
+            plugin_id=PluginId("widget_test"),
+            variant=ButtonVariant.PRIMARY,
+        )
+    else:
+        run_basic = DatalensButton("Run: Count to 10", theme, ButtonVariant.PRIMARY, box)
     run_cancel = DatalensButton("Run: Count to 10 (Cancelable)", theme, ButtonVariant.SECONDARY, box)
     run_sequence = DatalensButton("Run: 3-stage Sequence", theme, ButtonVariant.SECONDARY, box)
     run_error = DatalensButton("Run: Intentional Error", theme, ButtonVariant.CANCEL, box)
@@ -497,7 +508,8 @@ def build_loader_test_section(
             },
         )
 
-    run_basic.clicked.connect(lambda *_: _run_count(cancelable=False))
+    if run_count_10_binding is None:
+        run_basic.clicked.connect(lambda *_: _run_count(cancelable=False))
     run_cancel.clicked.connect(lambda *_: _run_count(cancelable=True))
     run_sequence.clicked.connect(lambda *_: _run_sequence())
     run_error.clicked.connect(lambda *_: _run_error())
@@ -534,4 +546,3 @@ def build_loader_test_section(
 
 
 __all__ = ["build_loader_test_section"]
-
