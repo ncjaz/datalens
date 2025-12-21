@@ -314,14 +314,13 @@ the robustness contract so we can close the gaps intentionally.
 
 - [x] Project open must be staged: `SqliteProjectDb` now initializes asynchronously and exposes `ready()`, but any project-open helper that blocks (e.g. `ProjectService.open_project`) must never be called on the UI thread.
 - [x] Core schema open is now inspect-first: the project open flow inspects the DB read-only and fails fast on unknown/foreign databases and newer core schema versions. Older core schema versions can now be migrated (currently v0/v1 -> v2).
-- [ ] Close semantics are largely in place: `ProjectDb.flush()` / `IoWriter.flush()` exist, both executors support `close(flush=True)`, and the app close path uses a background shutdown stage that flushes, then closes resources. Remaining gap: decide if timeouts should surface as user-visible errors vs best-effort warnings.
-- [ ] Derived meta JSON timing is not ideal: generating/writing `project_meta.json` should be queued after "project ready" and must not delay project open.
+- [x] Close semantics are largely in place: `ProjectDb.flush()` / `IoWriter.flush()` exist, both executors support `close(flush=True)`, and the app close path uses a background shutdown stage that flushes, then closes resources. Failure UX is now explicit (retry/cancel/force-close).
+- [x] Derived meta JSON timing is now non-blocking: generating/writing `project_meta.json` is scheduled as best-effort after the project is attached/ready (never on the project-open critical path).
+- [x] Core-vs-plugin schema ownership enforcement is improved: core migrations now run via a core-only DB executor method that rejects non-core table mutations, using both a trace-guard and a SQLite authorizer for stronger guarantees.
 
 Hardening TODOs (next):
 
-- [ ] Decide and implement timeout/failure UX for project close flush (warn user vs block-close vs retry).
-- [ ] Ensure `project_meta.json` generation is queued strictly after "project ready" and never delays project open.
-- [ ] Improve enforcement of core-vs-plugin schema ownership boundaries (beyond convention + `PluginDb` row scoping).
+- [x] Improve enforcement of core-vs-plugin schema ownership boundaries (beyond convention + `PluginDb` row scoping + core-only migration guard).
 
 ## Project open stages (inspect-first, plugin-safe)
 
@@ -386,6 +385,6 @@ sequenceDiagram
 1. Remove UI-blocking waits from project open. Status: done (blocking project open/load are guarded against UI-thread usage, and `load_project_async(...)` provides an explicit async entrypoint).
 2. Add schema compatibility checks (fail fast; no DB modifications on mismatch). Status: done for unknown/foreign DBs and newer core schema versions; plus core migrations for older schema versions (v0/v1 -> v2).
 3. Add `flush()` / `close(flush=True)` to DB executor and IO writer; ensure app shutdown uses them. Status: done (flush barriers + close(flush=True) exist; shutdown path flushes then closes).
-4. Document and enforce core-vs-plugin schema ownership boundaries (core never touches plugin tables). Status: partial (documented; plugin row ownership enforced via `PluginDb`; core-vs-plugin table ownership still relies on conventions + review).
+4. Document and enforce core-vs-plugin schema ownership boundaries (core never touches plugin tables). Status: done (documented; plugin row ownership enforced via `PluginDb`; core-only executor now enforces table boundaries via trace guard + SQLite authorizer).
 5. Implement `PersistenceQueue` for snapshotting heavy mutable state (annotations, indexes, etc.). Status: implemented (initial) as `datalens/infra/persistence_queue.py` and used for debounced per-project UI state in `datalens/ui/main_window.py`.
 6. Add `plugin_meta` (core-owned table, plugin-owned rows) and a plugin migration hook so plugins can record their schema versions and migrate their own tables. Status: done (core table + `ProjectDb` API + `on_project_migrate` hook).

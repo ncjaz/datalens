@@ -1,25 +1,17 @@
-﻿datalens.domain.media
-=====================
+﻿media
+=====
+
+.. currentmodule:: datalens.domain.media
+
+**Full import path:** ``datalens.domain.media``
+
+.. code-block:: python
+
+   from datalens.domain import media
+   # or (import a symbol defined in the module)
+   from datalens.domain.media import <symbol>
 
 .. automodule:: datalens.domain.media
-
-   
-   .. rubric:: Functions
-
-   .. autosummary::
-   
-      dataclass
-   
-   .. rubric:: Classes
-
-   .. autosummary::
-   
-      Enum
-      MediaFilter
-      MediaItemSummary
-      MediaType
-      NewType
-      Path
-      auto
-      datetime
-   
+   :members:
+   :undoc-members:
+   :show-inheritance:

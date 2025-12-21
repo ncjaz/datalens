@@ -11,9 +11,12 @@ background services, data sources, model integrations, and shared capabilities.
    lifecycle
    manifests
    create_plugins
+   sharing
    capabilities
    theming
    iconography
+   public_api
+   stability
    settings
    streaming
    commands

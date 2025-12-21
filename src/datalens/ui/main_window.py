@@ -1,189 +1,218 @@
 from __future__ import annotations
 
-from typing import Any
+from pathlib import Path
 
-from PySide6.QtCore import QByteArray
-from PySide6.QtCore import Qt
-from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QApplication, QLabel, QMainWindow, QMessageBox, QWidget
+from PySide6.QtWidgets import QMainWindow, QWidget
 
 from datalens.domain.plugin import PluginId
-from datalens.infra.persistence_queue import PersistenceQueue
-from datalens.ui.menus.menubar import DatalensMenuBar
+from datalens.services.plugins.registry import PluginRecord
+from datalens.services.settings_store import default_settings_store
+from datalens.ui.main_window_components import (
+    MainWindowUiStateController,
+    ProjectActionsController,
+    WorkspacesController,
+    try_get_app_context,
+)
+from datalens.ui.menus.factory import create_menubar
 
 
 class MainWindow(QMainWindow):
-    """Minimal main application window placeholder."""
+    """
+    Main application window.
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    Keep this class focused on top-level composition/wiring; detailed UI logic is
+    implemented in `datalens.ui.main_window_components.*` to avoid monolithic growth.
+    """
+
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        *,
+        recent_projects: list[Path] | None = None,
+        plugins: list[PluginRecord] | None = None,
+        enabled_plugin_ids: set[str] | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("DataLens")
         self.resize(1200, 800)
+
         self._close_in_progress = False
-
-        menubar = DatalensMenuBar(self)
-        menubar.newProjectRequested.connect(self._on_new_project_requested)
-        self.setMenuBar(menubar)
-
-        label = QLabel("Main Window (placeholder)")
-        label.setAlignment(Qt.AlignCenter)
-        self.setCentralWidget(label)
-
-        self._ui_state_plugin_id = PluginId("core.ui")
-        self._ui_state_key = "main_window_state"
-        self._ui_state_last_snapshot: dict[str, object] | None = None
-        self._ui_state_queue = PersistenceQueue(
-            parent=self,
-            name="MainWindowUiState",
-            debounce_ms=250,
-            max_pending_jobs=1,
-            use_worker=False,  # save stage enqueues onto ProjectDb (already background)
-            merge_func=self._merge_ui_state_changes,
-            snapshot_func=self._snapshot_ui_state,
-            save_func=self._save_ui_state,
+        self._recent_projects: list[Path] = list(recent_projects or [])
+        self._plugins: list[PluginRecord] = list(plugins or [])
+        self._enabled_plugin_ids: set[PluginId] | None = (
+            {PluginId(pid) for pid in enabled_plugin_ids} if enabled_plugin_ids is not None else None
         )
-        self._restore_ui_state_from_project_db()
 
-    def _on_new_project_requested(self) -> None:
-        QMessageBox.information(self, "New Project", "New Project is not implemented yet.")
+        menubar = create_menubar(self)
+        self.setMenuBar(menubar)
+        self._menubar = menubar
+        self._menubar.set_recent_projects(self._recent_projects)
 
-    def moveEvent(self, event) -> None:
-        super().moveEvent(event)
-        self._ui_state_queue.enqueue(keys={"move"})
+        self._workspaces = WorkspacesController(self, plugins=self._plugins, enabled_plugin_ids=self._enabled_plugin_ids)
+        self.setCentralWidget(self._workspaces.central_widget)
 
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        self._ui_state_queue.enqueue(keys={"resize"})
+        self._ui_state = MainWindowUiStateController(self)
 
-    def _merge_ui_state_changes(self, keys: set[object], full_refresh: bool, payloads: list[Any]) -> bool:
-        # TODO(v2): This merge callback is intentionally minimal for window UI-state persistence.
-        # Current behavior: treat any UI event as "changed" and let `_snapshot_ui_state` dedupe.
-        # Future: if we persist additional per-project UI state (tabs, panes, etc.), implement
-        # a real in-memory merge/cache update here to avoid unnecessary snapshots.
-        return bool(keys) or full_refresh or bool(payloads)
+        def set_recent_projects(new: list[Path]) -> None:
+            self._recent_projects = list(new)
+            self._menubar.set_recent_projects(self._recent_projects)
 
-    def _snapshot_ui_state(self) -> dict[str, object] | None:
-        app_ctx = self._get_app_context()
-        if app_ctx is None or getattr(app_ctx, "active_project", None) is None:
-            return None
+        self._projects = ProjectActionsController(
+            self,
+            get_recent_projects=lambda: list(self._recent_projects),
+            set_recent_projects=set_recent_projects,
+            on_project_changed=self.on_project_changed,
+            flush_ui_state=self._ui_state.flush,
+            set_close_in_progress=lambda v: setattr(self, "_close_in_progress", bool(v)),
+            is_close_in_progress=lambda: bool(self._close_in_progress),
+        )
 
-        snapshot = {
-            "geometry_b64": bytes(self.saveGeometry().toBase64()).decode("ascii"),
-            "state_b64": bytes(self.saveState().toBase64()).decode("ascii"),
-        }
-        if snapshot == self._ui_state_last_snapshot:
-            return None
-        self._ui_state_last_snapshot = snapshot
-        return snapshot
+        self._refresh_project_state()
 
-    def _save_ui_state(self, payload: dict[str, object]) -> bool:
-        app_ctx = self._get_app_context()
-        project = getattr(app_ctx, "active_project", None) if app_ctx is not None else None
-        if project is None:
-            return False
-        project.project_db.kv_set(self._ui_state_plugin_id, self._ui_state_key, payload)
-        return True
+    def on_plugins_enabled(self) -> None:
+        """
+        Notify the UI that plugin enable/disable has completed.
 
-    def _restore_ui_state_from_project_db(self) -> None:
-        app_ctx = self._get_app_context()
-        project = getattr(app_ctx, "active_project", None) if app_ctx is not None else None
-        if project is None:
+        The main window is shown before plugins are enabled (loader stages run
+        after `show()`), so the initial workspace selection may have been
+        published before the runtime existed. Re-dispatch focus so the visible
+        workspace receives `on_focus`.
+        """
+        self._workspaces.on_plugins_enabled()
+
+    def plugin_records(self) -> list[PluginRecord]:
+        """Return the currently known discovered plugin records (UI metadata)."""
+        return list(self._plugins)
+
+    def refresh_plugin_records_from_app_context(self) -> None:
+        """
+        Best-effort: refresh discovered plugin metadata from the runtime plugin registry.
+
+        This is used after editing plugin metadata overrides (group/name/nav label)
+        so the workspace nav and menus can reflect changes immediately without a restart.
+        """
+        app_ctx = try_get_app_context()
+        if app_ctx is None:
+            return
+        host = getattr(app_ctx, "plugin_host", None)
+        registry = getattr(host, "registry", None) if host is not None else None
+        if registry is None:
+            return
+        try:
+            records = list(registry.all())
+        except Exception:
+            return
+        try:
+            settings = default_settings_store().load()
+            enabled = set(getattr(settings, "enabled_plugins", ()) or ())
+        except Exception:
+            enabled = None
+        self._plugins = records
+        self._enabled_plugin_ids = enabled
+        self._workspaces.set_plugins(self._plugins, self._enabled_plugin_ids)
+
+    def reload_recent_projects_from_settings(self) -> None:
+        """
+        Reload recent projects from `settings.json` and update menu/MRU surfaces.
+
+        Used by startup flows that open projects outside the File menu controller.
+        """
+        try:
+            settings = default_settings_store().load()
+            self._recent_projects = list(getattr(settings, "recent_projects", ()) or ())
+            self._menubar.set_recent_projects(self._recent_projects)
+        except Exception:
             return
 
-        future = project.project_db.kv_get(self._ui_state_plugin_id, self._ui_state_key)
+    def active_workspace_id(self) -> PluginId | None:
+        return self._workspaces.active_workspace_id
 
-        def apply(value: object | None) -> None:
-            if not isinstance(value, dict):
-                return
-            geometry_b64 = value.get("geometry_b64")
-            if isinstance(geometry_b64, str) and geometry_b64:
-                try:
-                    self.restoreGeometry(QByteArray.fromBase64(geometry_b64.encode("ascii")))
-                except Exception:
-                    pass
+    def moveEvent(self, event) -> None:  # type: ignore[override]
+        super().moveEvent(event)
+        self._ui_state.enqueue_move()
 
-            state_b64 = value.get("state_b64")
-            if isinstance(state_b64, str) and state_b64:
-                try:
-                    self.restoreState(QByteArray.fromBase64(state_b64.encode("ascii")))
-                except Exception:
-                    pass
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        super().resizeEvent(event)
+        self._ui_state.enqueue_resize()
 
-        def on_done(fut) -> None:
-            try:
-                value = fut.result()
-            except Exception:
-                return
-            QTimer.singleShot(0, lambda: apply(value))
+    def best_open_start_dir(self) -> str:
+        app_ctx = try_get_app_context()
+        project_root = getattr(app_ctx, "project_root", None) if app_ctx is not None else None
+        if project_root is not None:
+            return str(project_root)
+        if self._recent_projects:
+            return str(self._recent_projects[0])
+        return ""
 
-        future.add_done_callback(on_done)
-
-    def _get_app_context(self) -> object | None:
+    def _refresh_project_state(self) -> None:
+        app_ctx = try_get_app_context()
+        has_project = bool(app_ctx is not None and getattr(app_ctx, "active_project", None) is not None)
+        self._menubar.set_has_project(has_project)
         try:
-            app = QApplication.instance()
-            return getattr(app, "app_context", None) if app is not None else None
+            project_root = getattr(app_ctx, "project_root", None) if app_ctx is not None else None
+            if project_root is None:
+                self.setWindowTitle("DataLens")
+            else:
+                name = Path(project_root).name
+                self.setWindowTitle(f"DataLens: {name}")
         except Exception:
-            return None
+            self.setWindowTitle("DataLens")
 
-    def closeEvent(self, event) -> None:
+    def on_project_changed(self) -> None:
+        """
+        Refresh UI state after a project open/close/switch.
+
+        This is intentionally lightweight: it updates menu gating and restores any
+        persisted per-project main window UI state.
+        """
+        self._ui_state.on_project_changed()
+        self._refresh_project_state()
+        self._workspaces.on_project_changed()
+
+    def open_project(self, project_root: Path) -> None:
+        self._projects.open_project(project_root)
+
+    def close_project(self) -> None:
+        self._projects.close_project_interactive()
+
+    def restart_app(self) -> None:
+        """
+        Restart DataLens in a new process.
+
+        If a project is currently open, the restart will re-open the last project
+        (same as starting from terminal) using `--skip-welcome --load-last-project`.
+        """
+        self._projects.restart_app_interactive()
+
+    def startup_load(
+        self,
+        *,
+        enabled_plugin_ids: set[str] | None,
+        load_last_project: bool,
+        last_project_root: object | None,
+    ) -> None:
+        """
+        Apply the initial startup selection using the same UX as File->Open.
+
+        This keeps startup behavior consistent and reduces duplicated logic in
+        `datalens.app`.
+        """
+        self._projects.startup_load(
+            enabled_plugin_ids=enabled_plugin_ids,
+            load_last_project=load_last_project,
+            last_project_root=last_project_root,
+        )
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
         """
         Ensure project persistence flushes run off the UI thread on app close.
 
-        This uses the shared loader infrastructure so the UI remains responsive
-        while background flush/close work runs.
+        The close event is intercepted and handled asynchronously when a project
+        is open; the window closes once the loader completes.
         """
-        if self._close_in_progress:
-            super().closeEvent(event)
+        if self._projects.handle_close_event(event):
             return
+        super().closeEvent(event)
 
-        # Ensure the last UI-state snapshot is submitted before the DB flush.
-        try:
-            self._ui_state_queue.flush()
-        except Exception:
-            pass
 
-        try:
-            app = QApplication.instance()
-            app_ctx = getattr(app, "app_context", None) if app is not None else None
-        except Exception:
-            app_ctx = None
-
-        # No active project: nothing to flush.
-        if app_ctx is None or getattr(app_ctx, "active_project", None) is None:
-            super().closeEvent(event)
-            return
-
-        event.ignore()
-        self._close_in_progress = True
-
-        from datalens.infra.background.loader_context import LoaderContext
-        from datalens.infra.background.loader_runner import run_with_loader
-        from datalens.services.project_service import close_project_blocking
-
-        def task(ctx: LoaderContext) -> object:
-            ctx.log("Flushing project...")
-            close_project_blocking(app_ctx)
-            ctx.log("Stopping background IO...")
-            try:
-                app_ctx.io.close(flush=False, timeout_seconds=5.0)
-            except Exception:
-                pass
-            ctx.log("Done.")
-            return object()
-
-        def on_done(_: object) -> None:
-            self._close_in_progress = False
-            QTimer.singleShot(0, self.close)
-
-        def on_error(exc: Exception) -> None:
-            self._close_in_progress = False
-            QMessageBox.critical(self, "Failed to Close Project", str(exc))
-
-        run_with_loader(
-            parent=self,
-            title="Closing Project...",
-            task=task,
-            on_result=on_done,
-            on_error=on_error,
-            dialog_options={"spinner_size": 80, "title_point_size": 18, "subtitle_point_size": 12},
-        )
+__all__ = ["MainWindow"]

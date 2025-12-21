@@ -21,12 +21,13 @@ thread.
 from __future__ import annotations
 
 import contextvars
+import threading
 from typing import Any, Callable
 
 from PySide6.QtCore import QObject, Signal, QThread
 
 from datalens.core.logging import get_logger
-from datalens.infra.background.loader_context import LoaderContext
+from datalens.infra.background.loader_context import LoaderCancelled, LoaderContext
 
 
 class LoaderWorker(QObject):
@@ -52,6 +53,8 @@ class LoaderWorker(QObject):
         Emitted when the task reports progress via ``ctx.set_progress(...)``.
     finished: object
         Emitted with the return value of the task once it completes.
+    cancelled:
+        Emitted if the task cooperatively cancels (raises ``LoaderCancelled``).
     failed: Exception
         Emitted if the task raises an exception.
     """
@@ -59,6 +62,7 @@ class LoaderWorker(QObject):
     message = Signal(str)
     progress = Signal(float)
     finished = Signal(object)
+    cancelled = Signal()
     failed = Signal(Exception)
 
     def __init__(self, task: Callable[[LoaderContext], Any]) -> None:
@@ -73,6 +77,20 @@ class LoaderWorker(QObject):
         self._task = task
         self._thread: QThread | None = None
         self._context: contextvars.Context | None = None
+        self._cancel_requested = threading.Event()
+
+    def capture_context(self) -> None:
+        """
+        Capture the current contextvars context for propagation into the worker thread.
+
+        This should be called on the submission thread (typically the UI thread)
+        *before* the worker is started, so bound logging context (plugin_id, op_id,
+        etc.) is preserved even if startup is deferred via QTimer.
+        """
+        try:
+            self._context = contextvars.copy_context()
+        except Exception:
+            self._context = None
 
     # ------------------------------------------------------------------ #
     # Thread management
@@ -88,16 +106,33 @@ class LoaderWorker(QObject):
         thread = QThread()
         self._thread = thread
         self.moveToThread(thread)
-        self._context = contextvars.copy_context()
 
         thread.started.connect(self._run_task)
 
         # Ensure proper cleanup
         self.finished.connect(thread.quit)
+        self.cancelled.connect(thread.quit)
         self.failed.connect(thread.quit)
         thread.finished.connect(thread.deleteLater)
 
         thread.start()
+
+    def cancel(self) -> None:
+        """
+        Request cooperative cancellation.
+
+        Notes:
+
+        - This does not "kill" the thread. The task must periodically check
+          ``ctx.is_cancel_requested()`` (or call ``ctx.raise_if_cancelled()``)
+          and then exit.
+        """
+        self._cancel_requested.set()
+        try:
+            if self._thread is not None:
+                self._thread.requestInterruption()
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------ #
     # Task execution
@@ -114,6 +149,8 @@ class LoaderWorker(QObject):
         ctx = LoaderContext(
             send_message=lambda msg: self.message.emit(msg),
             send_progress=lambda val: self.progress.emit(val),
+            is_cancel_requested=lambda: bool(self._cancel_requested.is_set())
+            or bool(QThread.currentThread().isInterruptionRequested()),
         )
 
         try:
@@ -121,6 +158,13 @@ class LoaderWorker(QObject):
                 result = self._task(ctx)
             else:
                 result = self._context.run(self._task, ctx)
+        except LoaderCancelled:
+            get_logger(__name__).info(
+                "Loader task cancelled",
+                extra={"operation": "loader_task", "phase": "cancelled"},
+            )
+            self.cancelled.emit()
+            return
         except Exception as exc:
             get_logger(__name__).exception(
                 "Loader task failed",

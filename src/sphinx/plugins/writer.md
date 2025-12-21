@@ -149,4 +149,5 @@ project-close hook so the host can flush before closing the DB:
 
 Future: plugin version tracking
 
-- V2 plans to add a core-owned `plugin_meta` table where plugins can record their own `plugin_version` and `schema_version` (plugins own their row; core owns only the table).
+- V2 includes a core-owned `plugin_meta` table where plugins record their own `plugin_version` and `schema_version` (plugins own their row; core owns only the table).
+- Plugins can either update it directly via `PluginDb.plugin_meta_set(...)` or use `datalens.services.db.plugin_migrations.run_plugin_migrations(...)` to apply versioned migrations and keep `plugin_meta` consistent.

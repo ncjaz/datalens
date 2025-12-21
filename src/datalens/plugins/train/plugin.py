@@ -13,6 +13,10 @@ class TrainPlugin(BasePlugin):
         # TODO(v2): Wire training registry/services and UI feature registration.
         return None
 
+    def on_unload(self, ctx: PluginAppContext) -> None:
+        # TODO(v2): Disconnect UI/actions and stop any app-scoped services.
+        return None
+
     def on_project_opened(self, ctx: PluginProjectContext) -> PluginFutureResult:
         # TODO(v2): Restore training UI state and load any project-scoped training metadata.
         return None

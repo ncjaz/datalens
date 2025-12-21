@@ -8,6 +8,7 @@ from datalens.core.logging import get_logger, init_logging
 from datalens.infra.background.loader_context import LoaderContext
 from datalens.services.config_service import load_settings
 from datalens.services.plugins import PluginDiscoveryResult, discover_plugins
+from datalens.services.plugins.registry import PluginRecord
 
 
 @dataclass(frozen=True)
@@ -28,6 +29,31 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="When skipping welcome, attempt to open the last project.",
     )
+    parser.add_argument(
+        "--slow-event-threshold-ms",
+        type=float,
+        default=None,
+        help="Override slow Qt event warning threshold (0 disables; otherwise defaults to env/75ms).",
+    )
+    parser.add_argument(
+        "--debug-ui",
+        action="store_true",
+        help="Dump UI diagnostics (top-level widgets + active QTimers) after startup.",
+    )
+    logging_group = parser.add_mutually_exclusive_group()
+    logging_group.add_argument(
+        "--log-to-file",
+        dest="log_to_file",
+        action="store_true",
+        default=True,
+        help="Enable logging to a rotating log file under the user data dir (default).",
+    )
+    logging_group.add_argument(
+        "--no-log-file",
+        dest="log_to_file",
+        action="store_false",
+        help="Disable file logging (stderr/console only).",
+    )
     return parser.parse_args(argv[1:])
 
 
@@ -38,20 +64,42 @@ def _startup_task(ctx: LoaderContext) -> object:
     Keep this light for now: the primary goal is to prove the non-blocking
     loader UX. Heavy systems (plugins/services) should be added later.
     """
-    ctx.log("Starting DataLens…")
-    ctx.log("Loading settings…")
+    ctx.log("Starting DataLens...")
+    try:
+        from datalens.infra.paths import settings_json_path
+
+        ctx.log(f"Loading settings from: {settings_json_path()}")
+    except Exception as exc:
+        ctx.log(f"Loading settings... ({exc})")
     settings = load_settings()
     ctx.set_progress(0.25)
 
-    ctx.log("Discovering plugins…")
-    plugin_discovery = discover_plugins()
+    ctx.log("Discovering plugins...")
+    try:
+        from datalens.infra.paths import datalens_user_data_dir
+        from pathlib import Path
+
+        user_data_root = getattr(settings, "user_data_dir", None) or datalens_user_data_dir()
+        plugin_discovery = discover_plugins(user_plugins_root_dir=Path(user_data_root) / "plugins")
+    except Exception:
+        plugin_discovery = discover_plugins()
+
+    try:
+        plugin_discovery.registry.apply_definition_overrides(getattr(settings, "plugin_overrides", {}) or {})
+    except Exception as exc:
+        log = get_logger(__name__)
+        log.warning(
+            "Failed to apply plugin metadata overrides (best-effort): %s",
+            exc,
+            extra={"operation": "discover_plugins", "phase": "overrides_error"},
+        )
     ctx.set_progress(0.60)
     ctx.log(f"Found {len(plugin_discovery.registry.all())} plugins.")
     if plugin_discovery.issues:
         ctx.log(f"{len(plugin_discovery.issues)} plugin discovery issues (see logs).")
 
     ctx.set_progress(0.75)
-    ctx.log("Preparing UI theme…")
+    ctx.log("Preparing UI theme...")
     ctx.set_progress(0.90)
     ctx.log("Ready.")
     ctx.set_progress(1.0)
@@ -61,7 +109,7 @@ def _startup_task(ctx: LoaderContext) -> object:
 def main(argv: list[str] | None = None) -> int:
     argv = argv or sys.argv
     args = _parse_args(argv)
-    init_logging()
+    init_logging(log_to_file=bool(getattr(args, "log_to_file", True)))
     log = get_logger(__name__)
 
     # Import Qt-dependent modules only after argument parsing so `--help` works
@@ -69,148 +117,131 @@ def main(argv: list[str] | None = None) -> int:
     from PySide6.QtCore import QTimer
 
     from datalens.infra.background.loader_runner import run_with_loader
-    from datalens.services.plugins.host import PluginHost
+    from datalens.services.plugins.runtime.host import PluginHost
     from datalens.ui.application import DatalensApplication
     from datalens.ui.main_window import MainWindow
     from datalens.ui.theme import AppTheme
     from datalens.ui.welcome_window import WelcomeWindow
-    from datalens.services.project_service import attach_project, load_project
+    from PySide6.QtWidgets import QMessageBox
 
     theme = AppTheme()
-    app = DatalensApplication(argv, theme=theme)
+    app = DatalensApplication(argv, theme=theme, slow_event_threshold_ms=args.slow_event_threshold_ms)
     plugin_host: PluginHost | None = None
+    plugin_records: tuple[PluginRecord, ...] = ()
 
-    def show_main(*, load_last_project: bool, last_project_root: object | None) -> None:
-        def show_main_window() -> None:
-            main_window = MainWindow()
-            main_window.show()
-            app._main_window = main_window  # keep alive
+    def show_main(
+        *,
+        load_last_project: bool,
+        last_project_root: object | None,
+        enabled_plugin_ids: set[str] | None = None,
+        recent_projects: list[object] | None = None,
+    ) -> None:
+        from pathlib import Path
 
-        if not (load_last_project and last_project_root):
-            show_main_window()
-            return
+        main_window = MainWindow(
+            recent_projects=[p for p in (recent_projects or []) if isinstance(p, Path)],
+            plugins=list(plugin_records),
+            enabled_plugin_ids=enabled_plugin_ids,
+        )
+        main_window.show()
+        app._main_window = main_window  # keep alive
+        if args.debug_ui:
+            from datalens.ui.diagnostics.debug_tools import dump_active_timers, dump_top_level_widgets
+            from datalens.core.logging import get_logger
 
-        def open_project_task(ctx: LoaderContext) -> object:
-            ctx.log("Opening project...")
-            project = load_project(last_project_root, io=app.app_context.io)
-            if plugin_host is not None:
-                try:
-                    current_hook = "on_project_migrate"
-                    ctx.log("Running plugin migrations...")
-                    migrate_futures = plugin_host.on_project_migrate(app_ctx=app.app_context, project=project)
-                    for fut in migrate_futures:
-                        fut.result(timeout=60.0)
+            debug_log = get_logger("datalens.ui.debug")
 
-                    current_hook = "on_project_opened"
-                    ctx.log("Initializing plugins...")
-                    plugin_host.on_project_opened(app_ctx=app.app_context, project=project)
-                except Exception as exc:
-                    log.exception(
-                        "Plugin project open hook failed",
-                        extra={"operation": "plugin_hook", "hook": current_hook, "phase": "error"},
+            def dump() -> None:
+                for line in dump_top_level_widgets():
+                    debug_log.info("Top-level widget: %s", line, extra={"operation": "ui_debug", "phase": "widgets"})
+                timers = dump_active_timers()
+                debug_log.info(
+                    "Active QTimers: %d",
+                    len(timers),
+                    extra={"operation": "ui_debug", "phase": "timers"},
+                )
+                for info in timers[:20]:
+                    debug_log.info(
+                        "QTimer interval=%sms single=%s (%s)",
+                        info.interval_ms,
+                        info.single_shot,
+                        info.parent_chain,
+                        extra={"operation": "ui_debug", "phase": "timers"},
                     )
-                    ctx.log(f"Plugin project open failed: {exc}")
-                    raise
-            ctx.set_progress(1.0)
-            return project
 
-        def on_project_opened(project: object) -> None:
-            try:
-                from datalens.core.context import ProjectContext
+            QTimer.singleShot(250, dump)
 
-                if isinstance(project, ProjectContext):
-                    attach_project(app.app_context, project)
-            finally:
-                show_main_window()
-
-        def on_project_open_error(exc: Exception) -> None:
-            log.error("Failed to open project: %s", exc)
-            show_main_window()
-
-        run_with_loader(
-            parent=None,
-            title="Opening Project...",
-            task=open_project_task,
-            on_result=on_project_opened,
-            on_error=on_project_open_error,
-            dialog_options={
-                "spinner_size": 80,
-                "title_point_size": 18,
-                "subtitle_point_size": 12,
-            },
+        # Delegate plugin enable + project open sequencing to the main window so
+        # startup uses the same loader UX and policy as File->Open/Switch.
+        main_window.startup_load(
+            enabled_plugin_ids=enabled_plugin_ids,
+            load_last_project=load_last_project,
+            last_project_root=last_project_root,
         )
 
     def show_welcome(settings, plugins) -> None:
         welcome = WelcomeWindow(theme=theme, settings=settings, plugins=plugins)
-        app._welcome_window = welcome  # keep alive
+        # Do not keep the welcome window alive after it closes; keeping hidden
+        # widget trees around can contribute to sluggishness and hard-to-debug
+        # event churn.
         if not welcome.exec():
             app.exit(0)
             return
         updated = welcome.updated_settings()
+        try:
+            # Apply user shortcut overrides immediately so subsequent plugin enable/open flows
+            # use the latest bindings without requiring a restart.
+            app.app_context.shortcuts.apply_settings(updated)
+        except Exception:
+            log.debug("Failed to apply shortcut settings (best-effort)", exc_info=True)
+        selected_root = None
+        try:
+            selected_root = welcome.selected_project_root()
+        except Exception:
+            selected_root = None
+        try:
+            welcome.close()
+            welcome.deleteLater()
+        except Exception:
+            log.debug("Failed to close welcome window cleanly (best-effort)", exc_info=True)
 
-        def enable_plugins_task(ctx: LoaderContext) -> object:
-            if plugin_host is None:
-                return None
-            ctx.log("Enabling selected plugins…")
-            plugin_host.enable(app_ctx=app.app_context, plugin_ids=set(updated.enabled_plugins))
-            ctx.set_progress(1.0)
-            return None
-
-        run_with_loader(
-            parent=None,
-            title="Loading Plugins…",
-            task=enable_plugins_task,
-            on_result=lambda _: show_main(load_last_project=True, last_project_root=updated.last_project_root),
-            on_error=lambda exc: show_main(load_last_project=True, last_project_root=updated.last_project_root),
-            dialog_options={
-                "spinner_size": 80,
-                "title_point_size": 18,
-                "subtitle_point_size": 12,
-            },
+        show_main(
+            load_last_project=True,
+            last_project_root=selected_root,
+            enabled_plugin_ids=set(updated.enabled_plugins),
+            recent_projects=list(getattr(updated, "recent_projects", ()) or ()),
         )
 
     def on_startup_done(result: object) -> None:
-        nonlocal plugin_host
+        nonlocal plugin_host, plugin_records
         if isinstance(result, StartupResult):
             settings = result.settings
-            plugins = tuple(r.definition for r in result.plugin_discovery.registry.all())
+            plugin_records = tuple(result.plugin_discovery.registry.all())
+            plugins = tuple(r.definition for r in plugin_records)
             plugin_host = PluginHost(result.plugin_discovery.registry)
             app.app_context.plugin_host = plugin_host
         else:
+            # Defensive fallback: `_startup_task` currently always returns `StartupResult`,
+            # but keep this branch so alternate startup tasks can return settings directly.
             settings = result
             plugins = ()
         try:
-            from datalens.domain.settings import AppSettings
+            from datalens.domain.system.settings import AppSettings
 
             if isinstance(settings, AppSettings):
                 theme.set_opacity(settings.theme_opacity)
+                theme.set_settings(getattr(settings, "theme_settings", theme.settings))
+                try:
+                    app.app_context.shortcuts.apply_settings(settings)
+                except Exception:
+                    log.debug("Failed to apply shortcut settings on startup (best-effort)", exc_info=True)
 
                 if args.skip_welcome and settings.enabled_plugins:
-                    def enable_plugins_task(ctx: LoaderContext) -> object:
-                        if plugin_host is None:
-                            return None
-                        ctx.log("Enabling selected plugins…")
-                        plugin_host.enable(app_ctx=app.app_context, plugin_ids=set(settings.enabled_plugins))
-                        ctx.set_progress(1.0)
-                        return None
-
-                    run_with_loader(
-                        parent=None,
-                        title="Loading Plugins…",
-                        task=enable_plugins_task,
-                        on_result=lambda _: show_main(
-                            load_last_project=args.load_last_project,
-                            last_project_root=settings.last_project_root,
-                        ),
-                        on_error=lambda exc: show_main(
-                            load_last_project=args.load_last_project,
-                            last_project_root=settings.last_project_root,
-                        ),
-                        dialog_options={
-                            "spinner_size": 80,
-                            "title_point_size": 18,
-                            "subtitle_point_size": 12,
-                        },
+                    show_main(
+                        load_last_project=args.load_last_project,
+                        last_project_root=settings.last_project_root,
+                        enabled_plugin_ids=set(settings.enabled_plugins),
+                        recent_projects=list(getattr(settings, "recent_projects", ()) or ()),
                     )
                     return
         except Exception as exc:
@@ -226,7 +257,7 @@ def main(argv: list[str] | None = None) -> int:
     def run_startup() -> None:
         run_with_loader(
             parent=None,
-            title="Launching DataLens…",
+            title="Launching DataLens...",
             task=_startup_task,
             on_result=on_startup_done,
             on_error=on_startup_error,
@@ -241,9 +272,23 @@ def main(argv: list[str] | None = None) -> int:
     QTimer.singleShot(0, run_startup)
     exit_code = app.exec()
     try:
+        # Best-effort: flush debounced settings writes during shutdown.
+        # This runs after the Qt event loop exits, so it will not impact UI responsiveness.
+        from datalens.services.settings_store import default_debounced_settings_writer
+
+        default_debounced_settings_writer().flush()
+    except Exception:
+        log.warning("Failed to flush settings writer on exit (best-effort)", exc_info=True)
+    try:
+        plugin_host = getattr(app.app_context, "plugin_host", None)
+        if plugin_host is not None:
+            plugin_host.shutdown(app_ctx=app.app_context)
+    except Exception:
+        log.warning("Failed to unload plugins on exit (best-effort)", exc_info=True)
+    try:
         app.app_context.io.close(flush=True, timeout_seconds=5.0)
     except Exception:
-        pass
+        log.warning("Failed to close IoWriter on exit (best-effort)", exc_info=True)
     return exit_code
 
 

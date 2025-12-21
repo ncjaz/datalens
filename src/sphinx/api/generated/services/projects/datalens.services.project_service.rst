@@ -1,38 +1,17 @@
-﻿datalens.services.project\_service
-==================================
+﻿project_service
+===============
+
+.. currentmodule:: datalens.services.project_service
+
+**Full import path:** ``datalens.services.project_service``
+
+.. code-block:: python
+
+   from datalens.services import project_service
+   # or (import a symbol defined in the module)
+   from datalens.services.project_service import <symbol>
 
 .. automodule:: datalens.services.project_service
-
-   
-   .. rubric:: Functions
-
-   .. autosummary::
-   
-      _require_not_ui_thread
-      attach_project
-      build_project_meta
-      close_project
-      close_project_blocking
-      decide_core_open_action
-      ensure_core_schema
-      get_logger
-      inspect_core_db
-      load_project
-      load_project_async
-      migrate_core_schema
-      open_connection
-      open_project
-      project_db_path
-      project_meta_path
-   
-   .. rubric:: Classes
-
-   .. autosummary::
-   
-      AppContext
-      Future
-      IoWriter
-      Path
-      ProjectContext
-      SqliteProjectDb
-   
+   :members:
+   :undoc-members:
+   :show-inheritance:

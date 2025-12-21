@@ -13,6 +13,21 @@ from datalens.infra.ipc.protocol import new_endpoint_name
 
 _log = logging.getLogger(__name__)
 
+def _find_repo_root(start: Path) -> Path:
+    """
+    Best-effort repo root discovery for worker processes.
+
+    Prefer passing `WorkerProcessSpec.working_dir`. This fallback exists to make
+    local development resilient if files move within the package tree.
+    """
+    markers = ("pyproject.toml", "requirements.txt", ".git")
+    current = start.resolve()
+    for candidate in (current, *current.parents):
+        for marker in markers:
+            if (candidate / marker).exists():
+                return candidate
+    return current
+
 
 @dataclass(frozen=True, slots=True)
 class WorkerProcessSpec:
@@ -88,7 +103,7 @@ class LocalWorkerProcess(QObject):
 
         working_dir = self._spec.working_dir
         if working_dir is None:
-            working_dir = Path(__file__).resolve().parents[3]
+            working_dir = _find_repo_root(Path.cwd())
         self._process.setWorkingDirectory(str(working_dir))
 
         env = QProcessEnvironment.systemEnvironment()
@@ -146,4 +161,3 @@ class LocalWorkerProcess(QObject):
             self._kill_timer = None
         self._cleanup()
         self.exited.emit(int(exit_code), int(exit_status))
-

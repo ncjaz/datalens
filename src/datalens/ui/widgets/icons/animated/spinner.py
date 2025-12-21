@@ -65,10 +65,10 @@ class DualRingSpinner(ThemedWidget):
         self._outer_color = QColor(theme.primary_color)
         self._inner_color = QColor(theme.tertiary_color)
 
-        # Track/background uses a softened secondary
-        secondary = QColor(theme.secondary_color)
-        secondary.setAlphaF(getattr(getattr(theme, "opacity", object()), "subtle_fill", 0.45))
-        self._track_color = secondary
+        # Track/background uses a softened background surface
+        bg = QColor(theme.background_color)
+        bg.setAlphaF(getattr(getattr(theme, "opacity", object()), "subtle_fill", 0.45))
+        self._track_color = bg
 
         self.update()
 

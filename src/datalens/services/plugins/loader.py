@@ -131,6 +131,26 @@ def _plugin_definition_from_manifest_json(*, plugin_dir: Path, builtin: bool) ->
     if homepage is not None and not isinstance(homepage, str):
         homepage = str(homepage)
 
+    nav_label = payload.get("nav_label")
+    if nav_label is not None and not isinstance(nav_label, str):
+        nav_label = str(nav_label)
+    if isinstance(nav_label, str):
+        nav_label = nav_label.strip()
+        if not nav_label:
+            nav_label = None
+        else:
+            nav_label = nav_label.upper()
+            if len(nav_label) > 2:
+                raise ValueError("manifest.nav_label must be at most 2 characters")
+
+    nav_icon = payload.get("nav_icon")
+    if nav_icon is not None and not isinstance(nav_icon, str):
+        nav_icon = str(nav_icon)
+    if isinstance(nav_icon, str):
+        nav_icon = nav_icon.strip()
+        if not nav_icon:
+            nav_icon = None
+
     manual_raw = payload.get("manual_pip_requirements", [])
     if manual_raw is None:
         manual_raw = []
@@ -159,6 +179,8 @@ def _plugin_definition_from_manifest_json(*, plugin_dir: Path, builtin: bool) ->
         homepage=homepage,
         core_version_constraint=core_version_constraint,
         group=group,
+        nav_label=nav_label,
+        nav_icon=nav_icon,
         manual_pip_requirements=manual_pip_requirements,
         enabled_by_default=enabled_by_default,
         builtin=builtin,

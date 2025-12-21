@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
+from typing import Callable
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
@@ -10,6 +11,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QProgressBar,
+    QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -17,6 +20,22 @@ from PySide6.QtWidgets import (
 from datalens.ui.theme import AppTheme
 from datalens.ui.widgets.core.buttons import ButtonVariant, DatalensButton
 from datalens.ui.widgets.icons.animated.spinner import DualRingSpinner
+
+
+class _NonScrollingScrollArea(QScrollArea):
+    """
+    Scroll area that never scrolls: overflowing content is clipped.
+
+    We still use ``QScrollArea`` so the *middle* region can expand/shrink without
+    pushing the header/spinner or the progress/buttons around, but we disable
+    scrolling to match the V1-style loader UX.
+    """
+
+    def wheelEvent(self, event) -> None:  # type: ignore[override]
+        event.ignore()
+
+    def keyPressEvent(self, event) -> None:  # type: ignore[override]
+        event.ignore()
 
 
 class LoaderDialog(QDialog):
@@ -37,11 +56,12 @@ class LoaderDialog(QDialog):
         header_text: str = "DataLens",
         subtitle_text: str = "Data Viewer, Collection & Annotation",
         title_point_size: int = 20,
-        subtitle_point_size: int = 11,
-        spinner_size: int | None = 60,
+        subtitle_point_size: int = 12,
+        spinner_size: int | None = 120,
         theme: AppTheme,
         parent: QWidget | None = None,
-        max_messages: int = 4,
+        max_messages: int = 6,
+        cancel_text: str = "Cancel",
     ) -> None:
         flags = Qt.Dialog | Qt.FramelessWindowHint
         if parent is None:
@@ -52,6 +72,8 @@ class LoaderDialog(QDialog):
         self._messages: deque[str] = deque(maxlen=max(1, int(max_messages)))
         self._message_labels: list[QLabel] = []
         self._error_text: str | None = None
+        self._cancel_callback: Callable[[], None] | None = None
+        self._cancel_text = str(cancel_text)
 
         self.setWindowTitle(title)
         if parent is None:
@@ -72,7 +94,12 @@ class LoaderDialog(QDialog):
 
         card_layout = QVBoxLayout(self._card)
         card_layout.setContentsMargins(28, 32, 28, 28)
-        card_layout.setSpacing(18)
+        card_layout.setSpacing(0)
+        # Layout intent:
+        # - Header + spinner are fixed at the top.
+        # - Progress/actions are fixed at the bottom.
+        # - Only the message area in the middle grows (and scrolls if needed).
+        card_layout.setAlignment(Qt.AlignTop)
 
         self._title = QLabel(header_text, self._card)
         self._title.setObjectName("LoaderTitle")
@@ -90,24 +117,45 @@ class LoaderDialog(QDialog):
         self._subtitle.setFont(subtitle_font)
         self._subtitle.setAlignment(Qt.AlignCenter)
         card_layout.addWidget(self._subtitle)
+        card_layout.addSpacing(20)
 
         self._spinner = DualRingSpinner(self._theme, self._card)
         if spinner_size is not None:
             size = max(1, int(spinner_size))
+            # Keep the spinner a fixed, predictable size (V1-style) so it stays
+            # visually "anchored" at the top of the dialog.
             self._spinner.setFixedSize(size, size)
-            dialog_size = max(420, size + 300)
-            self._card.setMinimumSize(dialog_size, dialog_size)
-            self.setMinimumSize(dialog_size, dialog_size)
         self._spinner.start()
-        card_layout.addWidget(self._spinner, alignment=Qt.AlignCenter)
+        card_layout.addWidget(self._spinner, alignment=Qt.AlignHCenter | Qt.AlignTop)
+
+        # Messages: keep them in a scrolling area so adding/removing lines doesn't
+        # push the spinner/title around or move the progress bar/buttons.
+        self._messages_container = QWidget(self._card)
+        self._messages_layout = QVBoxLayout(self._messages_container)
+        self._messages_layout.setContentsMargins(0, 20, 0, 0)
+        self._messages_layout.setSpacing(5)
+        self._messages_layout.setAlignment(Qt.AlignTop)
+
+        self._messages_scroll = _NonScrollingScrollArea(self._card)
+        self._messages_scroll.setFrameShape(QFrame.NoFrame)
+        self._messages_scroll.setWidgetResizable(True)
+        self._messages_scroll.setFocusPolicy(Qt.NoFocus)
+        self._messages_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._messages_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._messages_scroll.setWidget(self._messages_container)
+        self._messages_scroll.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        card_layout.addWidget(self._messages_scroll, 1)
 
         for _ in range(max(1, int(max_messages))):
             label = QLabel("", self._card)
             label.setObjectName("LoaderMessage")
             label.setAlignment(Qt.AlignCenter)
             label.setWordWrap(True)
+            # Empty QLabel still consumes vertical space; hide until it has content.
+            label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+            label.hide()
             self._message_labels.append(label)
-            card_layout.addWidget(label)
+            self._messages_layout.addWidget(label)
 
         self._progress = QProgressBar(self._card)
         self._progress.setObjectName("LoaderProgress")
@@ -129,6 +177,11 @@ class LoaderDialog(QDialog):
         actions_row.setSpacing(10)
         actions_row.addStretch(1)
         card_layout.addLayout(actions_row)
+
+        self._cancel_button = DatalensButton(cancel_text, self._theme, ButtonVariant.SECONDARY, self._card)
+        self._cancel_button.clicked.connect(self._on_cancel_clicked)
+        self._cancel_button.hide()
+        actions_row.addWidget(self._cancel_button)
 
         self._copy_error = DatalensButton("Copy error", self._theme, ButtonVariant.SECONDARY, self._card)
         self._copy_error.clicked.connect(self.copy_error_to_clipboard)
@@ -157,8 +210,8 @@ class LoaderDialog(QDialog):
     def _apply_theme(self) -> None:
         t = self._theme
 
-        bg = t.with_alpha_hex(t.secondary_color, 0.94)
-        border = t.with_alpha_hex(t.tertiary_color, 0.90)
+        bg = t.with_alpha_hex(t.background_color, 0.94)
+        border = t.with_alpha_hex(t.primary_color, 0.45)
         subtitle = t.with_alpha_hex(t.text_color, 0.75)
 
         self._card.setStyleSheet(
@@ -182,9 +235,17 @@ class LoaderDialog(QDialog):
             }}
             QLabel#LoaderMessage {{
                 font-size: 11px;
+                margin: 0px;
+                padding: 0px;
+            }}
+            QScrollArea {{
+                background: transparent;
+            }}
+            QScrollArea QWidget {{
+                background: transparent;
             }}
             QProgressBar#LoaderProgress {{
-                background-color: {t.subtle_fill(t.secondary_color)};
+                background-color: {t.subtle_fill(t.background_color)};
                 border: 1px solid {border};
                 border-radius: 6px;
                 height: 10px;
@@ -219,10 +280,12 @@ class LoaderDialog(QDialog):
                 label.setText(self._messages[index])
                 opacity = fade_steps[index] if index < len(fade_steps) else 0.25
                 label.setStyleSheet(
-                    f"font-size: 11px; color: {t.with_alpha_hex(t.text_color, opacity)};"
+                    f"font-size: 11px; margin: 0px; padding: 0px; color: {t.with_alpha_hex(t.text_color, opacity)};"
                 )
+                label.show()
             else:
                 label.setText("")
+                label.hide()
 
     def set_progress(self, value: float) -> None:
         """
@@ -249,6 +312,7 @@ class LoaderDialog(QDialog):
         self._error_text = text
         self._error.setText(text)
         self._error.show()
+        self._cancel_button.hide()
         self._close_button.show()
         self._copy_error.show()
 
@@ -269,9 +333,47 @@ class LoaderDialog(QDialog):
         except Exception:
             return
 
+    def set_cancel_callback(self, callback: Callable[[], None] | None) -> None:
+        """
+        Enable cooperative cancellation for the current loader task.
+
+        The callback runs on the UI thread and should request cancellation on
+        the worker (cooperative; the task must check the token and exit).
+        """
+        self._cancel_callback = callback
+        if callback is None:
+            self._cancel_button.hide()
+            return
+        self._cancel_button.setEnabled(True)
+        self._cancel_button.setText(self._cancel_text)
+        self._cancel_button.show()
+
+    def _on_cancel_clicked(self) -> None:
+        if self._cancel_callback is None:
+            return
+        self._cancel_button.setEnabled(False)
+        self._cancel_button.setText("Cancelling…")
+        try:
+            self.append_message("Cancelling…")
+        except Exception:
+            pass
+        try:
+            self._cancel_callback()
+        except Exception:
+            return
+
     def closeEvent(self, event) -> None:
         try:
             self._spinner.stop()
         except Exception:
             pass
         super().closeEvent(event)
+
+    def hideEvent(self, event) -> None:  # type: ignore[override]
+        # If the dialog is hidden (e.g. right before close), stop the animation
+        # immediately to avoid burning CPU on a hidden window.
+        try:
+            self._spinner.stop()
+        except Exception:
+            pass
+        super().hideEvent(event)

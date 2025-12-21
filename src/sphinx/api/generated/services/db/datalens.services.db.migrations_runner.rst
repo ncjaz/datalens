@@ -1,41 +1,17 @@
-﻿datalens.services.db.migrations\_runner
-=======================================
+﻿migrations_runner
+=================
+
+.. currentmodule:: datalens.services.db.migrations_runner
+
+**Full import path:** ``datalens.services.db.migrations_runner``
+
+.. code-block:: python
+
+   from datalens.services.db import migrations_runner
+   # or (import a symbol defined in the module)
+   from datalens.services.db.migrations_runner import <symbol>
 
 .. automodule:: datalens.services.db.migrations_runner
-
-   
-   .. rubric:: Functions
-
-   .. autosummary::
-   
-      _pragma_int
-      build_project_meta
-      dataclass
-      decide_core_open_action
-      ensure_core_schema
-      has_table
-      inspect_core_db
-      list_user_tables
-      migrate_core_schema
-      project_meta_path
-      read_app_meta
-      write_project_meta_json
-   
-   .. rubric:: Classes
-
-   .. autosummary::
-   
-      Any
-      AppMeta
-      CoreDbInspection
-      CoreOpenDecision
-      Path
-   
-   .. rubric:: Exceptions
-
-   .. autosummary::
-   
-      CoreSchemaError
-      ForeignDatabaseError
-      IncompatibleCoreSchemaError
-   
+   :members:
+   :undoc-members:
+   :show-inheritance:

@@ -12,8 +12,17 @@ import threading
 import time
 from concurrent.futures import Future
 from pathlib import Path
+from typing import TYPE_CHECKING, Callable
 
-from datalens.core.context import AppContext, ProjectContext
+from datalens.core.context import AppContext, ProjectContext, get_app_context
+from datalens.core.events import (
+    ActiveProjectChanged,
+    EventHub,
+    ProjectClosed,
+    ProjectClosing,
+    ProjectOpenFailed,
+    ProjectOpened,
+)
 from datalens.core.logging import get_logger
 from datalens.infra.project_paths import project_db_path, project_meta_path
 from datalens.services.background_io.writer import IoWriter
@@ -29,6 +38,23 @@ from datalens.services.db.project_db import SqliteProjectDb
 
 
 log = get_logger(__name__)
+
+if TYPE_CHECKING:
+    from datalens.services.plugins.runtime.host import PluginHost
+
+
+class ProjectCloseError(RuntimeError):
+    def __init__(self, *, phase: str, message: str, cause: Exception | None = None) -> None:
+        super().__init__(message)
+        self.phase = phase
+        self.__cause__ = cause
+
+
+class ProjectOpenError(RuntimeError):
+    def __init__(self, *, phase: str, message: str, cause: Exception | None = None) -> None:
+        super().__init__(message)
+        self.phase = phase
+        self.__cause__ = cause
 
 
 def _require_not_ui_thread(operation: str) -> None:
@@ -49,6 +75,11 @@ def load_project(project_root: Path, *, io: IoWriter) -> ProjectContext:
     """
     _require_not_ui_thread("load_project")
     root = Path(project_root)
+    # Guard: do not allow projects rooted in dot-prefixed folders (e.g. ".datalens").
+    # These are typically reserved for hidden/internal app data and are easy to select
+    # accidentally on some platforms.
+    if root.name.startswith(".") and root.name not in {".", ".."}:
+        raise RuntimeError(f"Invalid project folder name (starts with '.'): {root.name}")
     root.mkdir(parents=True, exist_ok=True)
 
     db_path = project_db_path(root)
@@ -76,22 +107,11 @@ def load_project(project_root: Path, *, io: IoWriter) -> ProjectContext:
     # Apply core schema creation/repairs only if needed. This must never touch
     # plugin-owned tables.
     if action == "ensure":
-        project_db.execute_write(lambda conn: ensure_core_schema(conn)).result(timeout=15.0)
+        project_db.execute_core_write(lambda conn: ensure_core_schema(conn)).result(timeout=15.0)
     elif action == "migrate":
-        project_db.execute_write(
+        project_db.execute_core_write(
             lambda conn: migrate_core_schema(conn, from_schema_version=from_schema_version)
         ).result(timeout=30.0)
-
-    # Derived metadata is best effort and should not block project readiness.
-    try:
-        meta = project_db.execute_read(build_project_meta).result(timeout=5.0)
-        io.write_json_atomic(project_meta_path(root), meta)
-    except Exception:
-        log.debug(
-            "Failed to write derived project metadata (best-effort)",
-            extra={"operation": "project_meta", "phase": "warning"},
-            exc_info=True,
-        )
 
     return ProjectContext(project_root=root, project_db=project_db)
 
@@ -118,36 +138,195 @@ def load_project_async(project_root: Path, *, io: IoWriter) -> Future[ProjectCon
     return future
 
 
-def attach_project(app_ctx: AppContext, project: ProjectContext) -> None:
+def attach_project(app_ctx: AppContext | None, project: ProjectContext, *, schedule_meta: bool = True) -> None:
     """Attach a loaded project context to the app context (gating)."""
+    if app_ctx is None:
+        app_ctx = get_app_context()
+    previous = app_ctx.project_root
     app_ctx.active_project = project
+    if schedule_meta:
+        schedule_project_meta_write(app_ctx, project)
+    try:
+        now = time.time()
+        app_ctx.events.publish(EventHub.PROJECT_OPENED, ProjectOpened(project_root=project.project_root, timestamp_s=now))
+        app_ctx.events.publish(
+            EventHub.ACTIVE_PROJECT_CHANGED,
+            ActiveProjectChanged(previous_root=previous, current_root=project.project_root, timestamp_s=now),
+        )
+    except Exception:
+        log.debug("Failed to publish project attach events (best-effort)", exc_info=True)
 
 
-def open_project(app_ctx: AppContext, project_root: Path) -> ProjectContext:
+def schedule_project_meta_write(app_ctx: AppContext, project: ProjectContext) -> None:
     """
-    Open a project and attach it to the app context.
+    Best-effort derived metadata write after a project becomes "ready".
 
-    This creates process resources (DB executor) and closes any previous project.
+    This must never block the project open critical path.
+    """
+
+    def on_meta_done(fut: Future[dict[str, object]]) -> None:
+        try:
+            meta = fut.result()
+        except Exception:
+            log.debug(
+                "Failed to build derived project metadata (best-effort)",
+                extra={"operation": "project_meta", "phase": "warning"},
+                exc_info=True,
+            )
+            return
+
+        try:
+            app_ctx.io.write_json_atomic(project_meta_path(project.project_root), meta)
+        except Exception:
+            log.debug(
+                "Failed to enqueue derived project metadata write (best-effort)",
+                extra={"operation": "project_meta", "phase": "warning"},
+                exc_info=True,
+            )
+
+    try:
+        future = project.project_db.execute_core_read(build_project_meta)
+        future.add_done_callback(on_meta_done)
+    except Exception:
+        log.debug(
+            "Failed to schedule derived project metadata write (best-effort)",
+            extra={"operation": "project_meta", "phase": "warning"},
+            exc_info=True,
+        )
+
+
+def open_project_with_plugins(
+    app_ctx: AppContext | None,
+    project_root: Path,
+    *,
+    plugin_host: "PluginHost | None" = None,
+    close_timeout_seconds: float = 30.0,
+    plugin_migrate_timeout_seconds: float = 60.0,
+    await_plugin_opened: bool = False,
+    plugin_opened_timeout_seconds: float = 30.0,
+    progress: Callable[[str], None] | None = None,
+) -> ProjectContext:
+    """
+    Open/switch a project and run plugin project lifecycle hooks.
+
+    This is the canonical project-open pipeline for UI entrypoints:
+    welcome, MRU, menu "Open...", CLI `--load-last-project`.
 
     Important:
-        This function may block while the project DB initializes. Do not call it
-        on the UI thread. Use the loader/background pipeline (or a dedicated
-        async wrapper) in UI code.
+        This may block. Do not call it on the UI thread. Run it in a loader
+        stage or background pipeline.
+
+    Notes:
+
+    - Project meta generation is scheduled only after plugin hooks succeed.
+    - If plugin migrations fail, the project is closed and `active_project` is
+      cleared before raising.
     """
-    _require_not_ui_thread("open_project")
-    close_project(app_ctx)
-    project = load_project(project_root, io=app_ctx.io)
-    attach_project(app_ctx, project)
-    return project
+    if app_ctx is None:
+        app_ctx = get_app_context()
+    _require_not_ui_thread("open_project_with_plugins")
+
+    def emit(text: str) -> None:
+        if progress is None:
+            return
+        try:
+            progress(text)
+        except Exception:
+            return
+
+    project_root = Path(project_root)
+    try:
+        for hook in list(getattr(app_ctx, "pre_project_open_hooks", ())):
+            try:
+                hook(project_root)
+            except Exception:
+                log.warning(
+                    "Pre-project-open hook failed (best-effort)",
+                    extra={"operation": "project_open", "phase": "pre_hook_error"},
+                    exc_info=True,
+                )
+
+        if app_ctx.active_project is not None:
+            emit("Closing previous project...")
+            close_project_blocking(app_ctx, timeout_seconds=close_timeout_seconds, reason="switch")
+
+        project = load_project(project_root, io=app_ctx.io)
+
+        # Set active_project early so downstream code can rely on gating, but do
+        # not schedule derived metadata until the project is fully "ready".
+        attach_project(app_ctx, project, schedule_meta=False)
+
+        if plugin_host is not None:
+            emit("Running plugin migrations...")
+            migrate_futures = plugin_host.on_project_migrate(app_ctx=app_ctx, project=project)
+            for fut in migrate_futures:
+                fut.result(timeout=plugin_migrate_timeout_seconds)
+
+            emit("Initializing plugins...")
+            opened_futures = plugin_host.on_project_opened(app_ctx=app_ctx, project=project)
+            if await_plugin_opened:
+                for fut in opened_futures:
+                    fut.result(timeout=plugin_opened_timeout_seconds)
+
+        schedule_project_meta_write(app_ctx, project)
+
+        for hook in list(getattr(app_ctx, "post_project_open_hooks", ())):
+            try:
+                hook(project)
+            except Exception:
+                log.warning(
+                    "Post-project-open hook failed (best-effort)",
+                    extra={"operation": "project_open", "phase": "post_hook_error"},
+                    exc_info=True,
+                )
+        return project
+    except ProjectCloseError:
+        # Preserve close error shape for callers that want to special-case it.
+        raise
+    except Exception as exc:
+        log.exception(
+            "Project open failed; cleaning up",
+            extra={"operation": "project_open", "phase": "error"},
+        )
+        try:
+            app_ctx.events.publish(
+                EventHub.PROJECT_OPEN_FAILED,
+                ProjectOpenFailed(project_root=Path(project_root), error=str(exc), timestamp_s=time.time()),
+            )
+        except Exception:
+            log.debug("Failed to publish project open failed event (best-effort)", exc_info=True)
+        try:
+            close_project(app_ctx, reason="open_failed")
+        except Exception:
+            log.warning(
+                "Failed to clean up after project open failure (best-effort)",
+                extra={"operation": "project_open", "phase": "warning"},
+                exc_info=True,
+            )
+        raise ProjectOpenError(
+            phase="open_project_with_plugins",
+            message=f"Failed to open project: {project_root}",
+            cause=exc,
+        ) from exc
 
 
-def close_project(app_ctx: AppContext) -> None:
+def close_project(app_ctx: AppContext, *, reason: str = "close") -> None:
     """Close the currently active project (if any)."""
+    if app_ctx is None:
+        app_ctx = get_app_context()
     current = app_ctx.active_project
     if current is None:
         return
     _require_not_ui_thread("close_project")
     try:
+        try:
+            app_ctx.events.publish(
+                EventHub.PROJECT_CLOSING,
+                ProjectClosing(project_root=current.project_root, reason=str(reason), timestamp_s=time.time()),
+            )
+        except Exception:
+            log.debug("Failed to publish project closing event (best-effort)", exc_info=True)
+
         # Best-effort flush to reduce risk of dropping queued work. Do not call
         # this function on the UI thread; use a background/loader stage.
         try:
@@ -162,9 +341,23 @@ def close_project(app_ctx: AppContext) -> None:
         current.project_db.close()
     finally:
         app_ctx.active_project = None
+        try:
+            now = time.time()
+            app_ctx.events.publish(EventHub.PROJECT_CLOSED, ProjectClosed(project_root=current.project_root, timestamp_s=now))
+            app_ctx.events.publish(
+                EventHub.ACTIVE_PROJECT_CHANGED,
+                ActiveProjectChanged(previous_root=current.project_root, current_root=None, timestamp_s=now),
+            )
+        except Exception:
+            log.debug("Failed to publish project close events (best-effort)", exc_info=True)
 
 
-def close_project_blocking(app_ctx: AppContext, *, timeout_seconds: float = 30.0) -> None:
+def close_project_blocking(
+    app_ctx: AppContext | None,
+    *,
+    timeout_seconds: float = 30.0,
+    reason: str = "close",
+) -> None:
     """
     Close the active project with flush guarantees.
 
@@ -175,6 +368,8 @@ def close_project_blocking(app_ctx: AppContext, *, timeout_seconds: float = 30.0
 
     This may block. Do not call it on the UI thread.
     """
+    if app_ctx is None:
+        app_ctx = get_app_context()
     _require_not_ui_thread("close_project_blocking")
     current = app_ctx.active_project
     if current is None:
@@ -187,6 +382,14 @@ def close_project_blocking(app_ctx: AppContext, *, timeout_seconds: float = 30.0
         if deadline is None:
             return None
         return max(0.0, deadline - time.monotonic())
+
+    try:
+        app_ctx.events.publish(
+            EventHub.PROJECT_CLOSING,
+            ProjectClosing(project_root=current.project_root, reason=str(reason), timestamp_s=time.time()),
+        )
+    except Exception:
+        log.debug("Failed to publish project closing event (best-effort)", exc_info=True)
 
     # 1) Plugin flush hooks (plugins own their pipelines).
     hook_futures: list[Future[object]] = []
@@ -213,18 +416,93 @@ def close_project_blocking(app_ctx: AppContext, *, timeout_seconds: float = 30.0
                 exc,
                 extra={"operation": "project_close", "phase": "error"},
             )
-        raise RuntimeError(
-            f"{len(hook_errors)} plugin flush hook(s) failed; project remains open"
-        ) from hook_errors[0]
+        raise ProjectCloseError(
+            phase="plugin_flush_hooks",
+            message=f"{len(hook_errors)} plugin flush hook(s) failed; project remains open",
+            cause=hook_errors[0],
+        )
+
+    # Failure injection (dev harness): widget_test can simulate db/io flush failures.
+    # This is strictly for validating close UX; it is in-memory only (PluginStateRegistry).
+    try:
+        from datalens.domain.plugin import PluginId
+
+        st = app_ctx.plugin_state.handle_for(PluginId("widget_test"))
+        if bool(st.get("test.project_close.enabled") or False):
+            db_mode = str(st.get("test.project_close.db_mode") or "off")
+            if db_mode == "fail":
+                raise ProjectCloseError(
+                    phase="db_flush",
+                    message="Simulated DB flush failure (widget_test)",
+                    cause=RuntimeError("widget_test db_flush=fail"),
+                )
+            if db_mode == "timeout":
+                raise ProjectCloseError(
+                    phase="db_flush",
+                    message="Simulated DB flush timeout (widget_test)",
+                    cause=TimeoutError("widget_test db_flush=timeout"),
+                )
+    except ProjectCloseError:
+        raise
+    except Exception:
+        # Never let the simulation mechanism break real closes.
+        pass
 
     # 2) DB flush (authoritative project state).
-    current.project_db.flush().result(timeout=remaining())
+    try:
+        current.project_db.flush().result(timeout=remaining())
+    except Exception as exc:
+        raise ProjectCloseError(
+            phase="db_flush",
+            message="Project DB flush failed; project remains open",
+            cause=exc,
+        )
+
+    # Failure injection (dev harness): widget_test can simulate io flush failures.
+    try:
+        from datalens.domain.plugin import PluginId
+
+        st = app_ctx.plugin_state.handle_for(PluginId("widget_test"))
+        if bool(st.get("test.project_close.enabled") or False):
+            io_mode = str(st.get("test.project_close.io_mode") or "off")
+            if io_mode == "fail":
+                raise ProjectCloseError(
+                    phase="io_flush",
+                    message="Simulated IO flush failure (widget_test)",
+                    cause=RuntimeError("widget_test io_flush=fail"),
+                )
+            if io_mode == "timeout":
+                raise ProjectCloseError(
+                    phase="io_flush",
+                    message="Simulated IO flush timeout (widget_test)",
+                    cause=TimeoutError("widget_test io_flush=timeout"),
+                )
+    except ProjectCloseError:
+        raise
+    except Exception:
+        pass
 
     # 3) IO flush (derived artifacts / exports / caches).
-    app_ctx.io.flush().result(timeout=remaining())
+    try:
+        app_ctx.io.flush().result(timeout=remaining())
+    except Exception as exc:
+        raise ProjectCloseError(
+            phase="io_flush",
+            message="Background IO flush failed; project remains open",
+            cause=exc,
+        )
 
     # 4) Close resources.
     try:
         current.project_db.close()
     finally:
         app_ctx.active_project = None
+        try:
+            now = time.time()
+            app_ctx.events.publish(EventHub.PROJECT_CLOSED, ProjectClosed(project_root=current.project_root, timestamp_s=now))
+            app_ctx.events.publish(
+                EventHub.ACTIVE_PROJECT_CHANGED,
+                ActiveProjectChanged(previous_root=current.project_root, current_root=None, timestamp_s=now),
+            )
+        except Exception:
+            log.debug("Failed to publish project close events (best-effort)", exc_info=True)

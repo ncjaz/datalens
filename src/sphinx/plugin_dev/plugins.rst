@@ -11,5 +11,6 @@ Plugin system
    ../plugins/ui_presentation
    ../plugins/capabilities
    ../plugins/commands
+   ../plugins/shortcuts
    ../plugins/theming
    ../plugins/streaming

@@ -82,9 +82,14 @@ Core-owned tables (reserved):
 
 - `app_meta`
 - `plugin_kv`
+- `plugin_meta`
 
 Core code must never modify plugin-owned tables. Plugins manage their own tables
 and migrations.
+
+Plugins should create/migrate their own tables during `on_project_migrate(...)`.
+For convenience, plugins can use `datalens.services.db.plugin_migrations.run_plugin_migrations(...)`
+to apply versioned migrations and update their `plugin_meta` row (non-blocking; runs on the DB thread).
 
 ### Readiness
 
@@ -127,7 +132,7 @@ hook on `AppContext` via:
 
 User settings are stored per user (not per project) in `settings.json`:
 
-- schema: `datalens.domain.settings.AppSettings`
+- schema: `datalens.domain.system.settings.AppSettings`
 
 Helpers:
 
@@ -138,3 +143,16 @@ Helpers:
 Long-term: we may unify settings IO onto the same `IoWriter` to keep "file writes
 go through one system" consistent, but the semantics (debounce + file locking)
 must remain.
+
+## Plugins (`datalens.services.plugins`)
+
+The plugin system has two distinct layers:
+
+- **Discovery (metadata-only)**: reads `manifest.json` to build a registry for the welcome UI.
+  - `datalens.services.plugins.loader`
+  - `datalens.services.plugins.registry`
+- **Runtime orchestration (imports + hooks)**: imports enabled plugins and invokes lifecycle hooks.
+  - `datalens.services.plugins.runtime.host` (`PluginHost`)
+  - `datalens.services.plugins.runtime.loader` (imports `plugin.py` safely)
+  - `datalens.services.plugins.runtime.dispatcher` (hook call policy + logging)
+  - `datalens.services.plugins.runtime.contracts` (hook interfaces + contexts)

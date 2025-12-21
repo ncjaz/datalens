@@ -27,6 +27,20 @@ class PluginAppContext:
     app: AppContext
     plugin: PluginDefinition
 
+    @property
+    def has_project(self) -> bool:
+        """True if a project is currently open."""
+        return self.app.has_project
+
+    @property
+    def project_or_none(self) -> ProjectContext | None:
+        """Active project, or None if no project is open."""
+        return self.app.project
+
+    def require_project(self) -> ProjectContext:
+        """Return the active project or raise `NoActiveProjectError`."""
+        return self.app.require_project()
+
 
 @dataclass(frozen=True)
 class PluginProjectContext:
@@ -36,6 +50,10 @@ class PluginProjectContext:
     project: ProjectContext
     plugin: PluginDefinition
     db: PluginDb
+
+    @property
+    def project_root(self):
+        return self.project.project_root
 
 
 PluginFutureResult = Future[Any] | list[Future[Any]] | None
@@ -94,3 +112,87 @@ class NoopPlugin:
 
 
 GetPluginFn = Callable[[], BasePlugin]
+
+
+class ProjectAwarePlugin:
+    """
+    Optional convenience base class for plugin authors.
+
+    This is not required, but it makes "no project open" gating easier when
+    plugins register UI actions in `on_load` and then need to access project
+    resources later.
+
+    Contract:
+    - `on_load` may run with no project open.
+    - Project-scoped work must be started in `on_project_opened` and stopped/
+      flushed in `on_project_closing`.
+    """
+
+    def __init__(self) -> None:
+        self._app_ctx: AppContext | None = None
+        self._project_ctx: ProjectContext | None = None
+        self._plugin_def: PluginDefinition | None = None
+        self._plugin_db: PluginDb | None = None
+
+    @property
+    def plugin_id(self) -> PluginId:  # pragma: no cover - overridden by plugins
+        raise NotImplementedError
+
+    @property
+    def app(self) -> AppContext:
+        if self._app_ctx is None:
+            raise RuntimeError("Plugin has not been loaded yet (on_load not called).")
+        return self._app_ctx
+
+    @property
+    def plugin(self) -> PluginDefinition:
+        if self._plugin_def is None:
+            raise RuntimeError("Plugin has not been loaded yet (on_load not called).")
+        return self._plugin_def
+
+    @property
+    def has_project(self) -> bool:
+        return self._project_ctx is not None
+
+    @property
+    def project(self) -> ProjectContext | None:
+        return self._project_ctx
+
+    @property
+    def db(self) -> PluginDb | None:
+        return self._plugin_db
+
+    def require_project(self) -> ProjectContext:
+        return self.app.require_project()
+
+    def on_load(self, ctx: PluginAppContext) -> None:
+        self._app_ctx = ctx.app
+        self._plugin_def = ctx.plugin
+        self.on_app_loaded(ctx)
+
+    def on_app_loaded(self, ctx: PluginAppContext) -> None:
+        """Override for app-scope setup (UI registration, service init)."""
+        return None
+
+    def on_project_migrate(self, ctx: PluginProjectContext) -> PluginFutureResult:
+        return None
+
+    def on_project_opened(self, ctx: PluginProjectContext) -> PluginFutureResult:
+        self._project_ctx = ctx.project
+        self._plugin_db = ctx.db
+        return self.on_project_ready(ctx)
+
+    def on_project_ready(self, ctx: PluginProjectContext) -> PluginFutureResult:
+        """Override for project-scope setup (DB tables, caches, watchers)."""
+        return None
+
+    def on_project_closing(self, ctx: PluginProjectContext) -> PluginFutureResult:
+        try:
+            return self.on_project_teardown(ctx)
+        finally:
+            self._project_ctx = None
+            self._plugin_db = None
+
+    def on_project_teardown(self, ctx: PluginProjectContext) -> PluginFutureResult:
+        """Override for project-scope flush/teardown."""
+        return None

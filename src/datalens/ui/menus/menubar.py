@@ -1,7 +1,15 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Signal, Slot
-from PySide6.QtWidgets import QApplication, QMainWindow, QMenuBar, QMessageBox
+from pathlib import Path
+
+from PySide6.QtWidgets import QMainWindow, QMenuBar
+
+from datalens.ui.menus.contracts import MenuControllers
+from datalens.ui.menus.file.menu import FileMenuHandle
+from datalens.ui.menus.file.menu import populate as populate_file_menu
+from datalens.ui.menus.edit.menu import populate as populate_edit_menu
+from datalens.ui.menus.help.menu import populate as populate_help_menu
+from datalens.ui.menus.plugins.menu import populate as populate_plugins_menu
 
 
 class DatalensMenuBar(QMenuBar):
@@ -12,47 +20,32 @@ class DatalensMenuBar(QMenuBar):
     monolithic as menus grow.
     """
 
-    newProjectRequested = Signal()
-
-    def __init__(self, main_window: QMainWindow) -> None:
+    def __init__(self, main_window: QMainWindow, *, controllers: MenuControllers) -> None:
         super().__init__(main_window)
         self._main_window = main_window
+        self._controllers = controllers
+        self._file_handle: FileMenuHandle | None = None
         self._build_menus()
 
     def _build_menus(self) -> None:
         file_menu = self.addMenu("File")
         edit_menu = self.addMenu("Edit")
+        plugins_menu = self.addMenu("Plugins")
         help_menu = self.addMenu("Help")
 
-        # Minimal actions so the menus are functional.
-        new_project_action = file_menu.addAction("New Project\u2026")
-        new_project_action.triggered.connect(self._on_new_project)
+        self._file_handle = populate_file_menu(file_menu, controller=self._controllers.file)
+        populate_edit_menu(edit_menu, controller=self._controllers.edit)
+        populate_plugins_menu(plugins_menu, controller=self._controllers.plugins)
+        populate_help_menu(help_menu, controller=self._controllers.help)
 
-        file_menu.addSeparator()
+    def set_recent_projects(self, projects: list[Path]) -> None:
+        handle = self._file_handle
+        if handle is None:
+            return
+        handle.set_recent_projects(projects)
 
-        quit_action = file_menu.addAction("Quit")
-        quit_action.triggered.connect(self._on_quit)
-
-        # Placeholders for future Edit actions (undo/redo/preferences).
-        edit_menu.addAction("Preferences\u2026").setEnabled(False)
-
-        about_action = help_menu.addAction("About")
-        about_action.triggered.connect(self._on_about)
-
-    @Slot()
-    def _on_quit(self) -> None:
-        app = QApplication.instance()
-        if app is not None:
-            app.quit()
-
-    @Slot()
-    def _on_new_project(self) -> None:
-        self.newProjectRequested.emit()
-
-    @Slot()
-    def _on_about(self) -> None:
-        QMessageBox.about(
-            self._main_window,
-            "About DataLens",
-            "DataLens (V2)\n\nEarly development build.",
-        )
+    def set_has_project(self, has_project: bool) -> None:
+        handle = self._file_handle
+        if handle is None:
+            return
+        handle.set_has_project(has_project)

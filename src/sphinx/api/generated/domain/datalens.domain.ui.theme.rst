@@ -1,19 +1,17 @@
-﻿datalens.domain.ui.theme
-========================
+﻿theme
+=====
+
+.. currentmodule:: datalens.domain.ui.theme
+
+**Full import path:** ``datalens.domain.ui.theme``
+
+.. code-block:: python
+
+   from datalens.domain.ui import theme
+   # or (import a symbol defined in the module)
+   from datalens.domain.ui.theme import <symbol>
 
 .. automodule:: datalens.domain.ui.theme
-
-   
-   .. rubric:: Functions
-
-   .. autosummary::
-   
-      dataclass
-   
-   .. rubric:: Classes
-
-   .. autosummary::
-   
-      ThemeOpacitySettings
-      ThemeSettings
-   
+   :members:
+   :undoc-members:
+   :show-inheritance:

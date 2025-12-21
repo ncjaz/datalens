@@ -30,7 +30,7 @@ flowchart TB
         RB["RingBuffer[Sample] (in-process)"]
     end
 
-    subgraph Consumer["Consumer plugin/tab (e.g., Eval/Review)"]
+    subgraph Consumer["Consumer plugin/workspace (e.g., MEval/Review)"]
         UI["UI/worker loop"]
     end
 

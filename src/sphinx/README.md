@@ -1,3 +1,7 @@
+---
+orphan: true
+---
+
 # V2 Sphinx configuration
 
 Sphinx configuration and build helpers for the DataLens V2 documentation live in

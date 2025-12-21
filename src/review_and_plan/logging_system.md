@@ -53,7 +53,7 @@ propagate to that thread:
 
 ### Asynchronous pipeline
 
-Use Pythonâ€™s built-in logging stack:
+Use Python's built-in logging stack:
 
 ```
 Logger -> QueueHandler (non-blocking) -> QueueListener thread -> RotatingFileHandler (+ optional StreamHandler)

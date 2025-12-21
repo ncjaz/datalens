@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from datalens.core.app_settings import load_app_settings, save_app_settings
-from datalens.domain.settings import AppSettings
+from datalens.domain.system.settings import AppSettings
 from datalens.infra.paths import settings_json_path
 from datalens.services.settings_store import SettingsStore, default_settings_store
 

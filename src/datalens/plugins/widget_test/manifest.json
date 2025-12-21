@@ -1,0 +1,17 @@
+{
+  "description": "",
+  "features": [
+    {
+      "description": "",
+      "display_name": "widget test",
+      "entrypoint": "plugin:get_plugin",
+      "id": "workspace",
+      "kind": "workspace"
+    }
+  ],
+  "id": "widget_test",
+  "name": "widget test",
+  "nav_label": "WT",
+  "stage": "dev",
+  "version": "0.1.0"
+}

@@ -71,13 +71,13 @@ class DatalensCheckBox(QCheckBox, StyledMixin):
         # Checkboxes only care about checked (selected) vs unchecked (base)
         base_bg, selected_bg, hover_base, hover_selected = self._resolve_colors(
             theme,
-            default_base=s.secondary_color,
+            default_base=s.background_color,
             default_selected=s.primary_color,
         )
 
-        # For checkboxes, hovering a checked indicator should still be visibly
-        # different from the fully-opaque selected fill (V1-style subtle hover).
-        hover_selected = theme.with_alpha_hex(selected_bg, theme.opacity.hover_fill)
+        # For checkboxes, unchecked hover uses the theme hover tint, but checked
+        # hover should keep the same solid fill as the checked state.
+        hover_selected = selected_bg
 
         # Border color logic (same rule as buttons/toggles)
         if self._border_color_override:
@@ -88,9 +88,9 @@ class DatalensCheckBox(QCheckBox, StyledMixin):
         text_color = s.text_color
 
         # Disabled colors: derived from theme opacity policy (consistent across UI)
-        disabled_bg = theme.disabled_fill_color(s.secondary_color)
+        disabled_bg = theme.disabled_fill_color(s.background_color)
         disabled_text = theme.disabled_text_color()
-        disabled_border = theme.disabled_border_color(s.secondary_color)
+        disabled_border = theme.disabled_border_color(s.background_color)
 
         indicator_size = 16
         indicator_radius = 4  # small rounding, not a pill

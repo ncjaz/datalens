@@ -72,12 +72,15 @@ class DatalensButton(QPushButton, StyledMixin):
         theme: AppTheme,
         variant: ButtonVariant = ButtonVariant.SECONDARY,
         parent: Optional[QPushButton] = None,
+        *,
+        outlined: bool = False,
     ) -> None:
         QPushButton.__init__(self, text, parent)
         StyledMixin.__init__(self)
 
         self._variant = variant
         self._theme: AppTheme = theme
+        self._outlined = outlined
         self.setCursor(Qt.PointingHandCursor)
         self.setMinimumHeight(32)
 
@@ -93,6 +96,11 @@ class DatalensButton(QPushButton, StyledMixin):
         self._border_color_override: Optional[str] = None
 
         self.apply_theme(theme)
+
+    def set_outlined(self, outlined: bool) -> None:
+        """Toggle outlined (border-only) styling for this button."""
+        self._outlined = bool(outlined)
+        self.apply_theme(self._theme)
 
     # ------------------------------------------------------------------
     # Role colour overrides (per-button primary/secondary/tertiary)
@@ -200,19 +208,24 @@ class DatalensButton(QPushButton, StyledMixin):
         else:
             selected_default = primary
 
-        # Use secondary as default "base" surface
+        # Use background as default "base" surface
         base_bg, selected_bg, hover_base, hover_selected = self._resolve_colors(
             theme,
-            default_base=secondary,
+            default_base=s.background_color,
             default_selected=selected_default,
         )
 
         # Apply per-state overrides on top
-        normal_bg = self._main_bg_override or selected_bg
+        if self._outlined:
+            normal_bg = self._main_bg_override or base_bg
+        else:
+            normal_bg = self._main_bg_override or selected_bg
         if self._hover_bg_override:
             hover_bg = self._hover_bg_override
         elif getattr(self, "_override_hover_bg", None):
             hover_bg = hover_selected
+        elif self._outlined:
+            hover_bg = hover_base
         else:
             hover_bg = lighten_hex(normal_bg, factor=1.12)
 
@@ -220,25 +233,48 @@ class DatalensButton(QPushButton, StyledMixin):
         if self._pressed_bg_override:
             pressed_bg = self._pressed_bg_override
         else:
-            pressed_bg = darken_hex(normal_bg, factor=1.15)
+            pressed_bg = hover_selected if self._outlined else darken_hex(normal_bg, factor=1.15)
 
         # Border: slightly brighter than normal_bg by default if not overridden
         if self._border_color_override:
             border_color = self._border_color_override
         else:
-            border_color = lighten_hex(normal_bg, factor=1.15)
+            if self._outlined:
+                if self._variant is ButtonVariant.PRIMARY:
+                    border_color = getattr(s, "primary_border", primary)
+                elif self._variant is ButtonVariant.SECONDARY:
+                    border_color = getattr(s, "secondary_border", secondary)
+                elif self._variant is ButtonVariant.TERTIARY:
+                    border_color = getattr(s, "tertiary_border", tertiary)
+                elif self._variant is ButtonVariant.CONFIRM:
+                    border_color = getattr(s, "accent_confirm_border", getattr(s, "accent_confirm", primary))
+                elif self._variant is ButtonVariant.CANCEL:
+                    border_color = getattr(s, "accent_cancel_border", getattr(s, "accent_cancel", secondary))
+                elif self._variant is ButtonVariant.WARNING:
+                    border_color = getattr(
+                        s,
+                        "accent_warning_border",
+                        getattr(s, "accent_warning", getattr(s, "accent_cancel", secondary)),
+                    )
+                else:
+                    border_color = selected_default
+            else:
+                border_color = lighten_hex(normal_bg, factor=1.15)
 
         # V1-style: use dark text on bright accents, light text on dark surfaces.
-        text_color = contrast_text_color(
-            bg_hex=normal_bg,
-            light_text=s.text_color,
-            dark_text=s.secondary_color,
-        )
+        if self._outlined:
+            text_color = selected_default
+        else:
+            text_color = contrast_text_color(
+                bg_hex=normal_bg,
+                light_text=s.text_color,
+                dark_text=s.background_color,
+            )
 
         # Disabled colours: derived from theme opacity policy (consistent across UI)
-        disabled_bg = theme.disabled_fill_color(s.secondary_color)
+        disabled_bg = theme.disabled_fill_color(s.background_color)
         disabled_text = theme.with_alpha_hex(text_color, theme.opacity.disabled_text)
-        disabled_border = theme.disabled_border_color(s.secondary_color)
+        disabled_border = theme.disabled_border_color(s.background_color)
 
         radius = self._pill_radius
         vpad = self._pill_vpadding

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import queue
+import re
 import sqlite3
 import threading
 import contextvars
@@ -13,7 +14,7 @@ from typing import Any, Protocol, TypeVar
 
 from datalens.core.logging import get_logger
 from datalens.domain.plugin import PluginId
-from datalens.domain.plugin_meta import PluginMeta
+from datalens.domain.plugin.meta import PluginMeta
 from datalens.infra.project_paths import project_db_path
 from datalens.services.db.gateway import open_connection
 
@@ -34,6 +35,16 @@ class ProjectDb(Protocol):
 
     def execute_read(self, fn: Callable[[sqlite3.Connection], T]) -> Future[T]:
         """Run `fn(conn)` on the DB executor and return a Future for its result."""
+
+    def execute_core_write(self, fn: Callable[[sqlite3.Connection], T]) -> Future[T]:
+        """
+        Run a core-only write callable.
+
+        Core-only writes must not touch plugin-owned tables (beyond core-owned metadata).
+        """
+
+    def execute_core_read(self, fn: Callable[[sqlite3.Connection], T]) -> Future[T]:
+        """Run a core-only read callable (symmetry helper)."""
 
     def kv_get(self, plugin_id: PluginId, key: str) -> Future[object | None]:
         """Return the JSON value for (plugin_id, key) or None if missing."""
@@ -70,6 +81,262 @@ class _DbTask:
     fn: Callable[[sqlite3.Connection], Any]
     future: Future[Any]
     context: contextvars.Context
+    core_only: bool = False
+
+
+class CoreDbOwnershipError(RuntimeError):
+    pass
+
+
+_CORE_TABLES: set[str] = {"app_meta", "plugin_kv", "plugin_meta"}
+_CORE_DML_ALLOWED: set[str] = {"app_meta"}
+_SQL_WS = re.compile(r"\s+")
+_SQL_QUOTED = re.compile(r'^[`"\[]?(.*?)[`"\]]?$')
+_SQLITE_INTERNAL_TABLES: set[str] = {
+    # SQLite may mutate schema tables as part of CREATE/ALTER operations.
+    # The authorizer sees these as normal DML actions, so allow them explicitly.
+    "sqlite_master",
+    "sqlite_schema",
+    "sqlite_temp_master",
+    "sqlite_sequence",
+}
+
+
+_CORE_ONLY_VIOLATION: threading.local = threading.local()
+
+
+def _set_core_only_violation(message: str) -> None:
+    try:
+        setattr(_CORE_ONLY_VIOLATION, "message", str(message))
+    except Exception:
+        pass
+
+
+def _get_core_only_violation() -> str | None:
+    try:
+        msg = getattr(_CORE_ONLY_VIOLATION, "message", None)
+        return str(msg) if msg else None
+    except Exception:
+        return None
+
+
+def _clear_core_only_violation() -> None:
+    try:
+        setattr(_CORE_ONLY_VIOLATION, "message", None)
+    except Exception:
+        pass
+
+
+def _sqlite_const(name: str) -> int | None:
+    return getattr(sqlite3, name, None)
+
+
+_CORE_ONLY_DENY_ACTIONS: set[int] = {
+    c
+    for c in (
+        # Dangerous / out-of-scope operations for core-only tasks.
+        _sqlite_const("SQLITE_ATTACH"),
+        _sqlite_const("SQLITE_DETACH"),
+        _sqlite_const("SQLITE_DROP_TABLE"),
+        _sqlite_const("SQLITE_DROP_INDEX"),
+        _sqlite_const("SQLITE_DROP_TRIGGER"),
+        _sqlite_const("SQLITE_DROP_VIEW"),
+        # Not all sqlite3 builds expose SQLITE_VACUUM; trace guard still catches it.
+        _sqlite_const("SQLITE_VACUUM"),
+        _sqlite_const("SQLITE_REINDEX"),
+        _sqlite_const("SQLITE_ANALYZE"),
+    )
+    if isinstance(c, int)
+}
+
+
+def _core_only_authorizer(
+    action: int,
+    arg1: str | None,
+    arg2: str | None,
+    db_name: str | None,
+    trigger_name: str | None,
+) -> int:
+    """
+    SQLite authorizer for core-only tasks.
+
+    This provides stronger guarantees than the best-effort trace callback guard.
+    It prevents core-managed call sites (migrations, inspection helpers) from
+    accidentally mutating plugin-owned tables or plugin-owned rows in core tables.
+
+    Notes:
+    - This is not a security boundary: plugin code runs in-process and can open
+      its own SQLite connections if it chooses. This is enforcement for core code
+      paths and well-behaved plugins that use our facades.
+    """
+
+    def deny(message: str) -> int:
+        _set_core_only_violation(message)
+        return sqlite3.SQLITE_DENY
+
+    if action in _CORE_ONLY_DENY_ACTIONS:
+        return deny(
+            f"Core-only DB operation denied by sqlite authorizer: action={action} arg1={arg1!r} arg2={arg2!r}"
+        )
+
+    # Allow all reads/selects/functions/transactions.
+    if action in {
+        sqlite3.SQLITE_READ,
+        sqlite3.SQLITE_SELECT,
+        sqlite3.SQLITE_FUNCTION,
+        sqlite3.SQLITE_TRANSACTION,
+        sqlite3.SQLITE_SAVEPOINT,
+    }:
+        return sqlite3.SQLITE_OK
+
+    # Pragmas are used by core schema helpers (including setting user_version).
+    if action == sqlite3.SQLITE_PRAGMA:
+        return sqlite3.SQLITE_OK
+
+    def normalize_table(name: str | None) -> str:
+        return _normalize_ident(name or "")
+
+    if action in {sqlite3.SQLITE_INSERT, sqlite3.SQLITE_UPDATE, sqlite3.SQLITE_DELETE}:
+        table = normalize_table(arg1)
+        if table in _SQLITE_INTERNAL_TABLES:
+            return sqlite3.SQLITE_OK
+        if table in _CORE_DML_ALLOWED:
+            return sqlite3.SQLITE_OK
+        if table in _CORE_TABLES:
+            return deny(f"Core-only DB operation attempted to mutate plugin-owned rows in {table!r}")
+        return deny(f"Core-only DB operation attempted to modify non-core table {table!r}")
+
+    if action in {sqlite3.SQLITE_CREATE_TABLE, sqlite3.SQLITE_ALTER_TABLE}:
+        table = normalize_table(arg1)
+        if table in _CORE_TABLES:
+            return sqlite3.SQLITE_OK
+        return deny(f"Core-only DB operation attempted to change non-core table {table!r}")
+
+    if action == sqlite3.SQLITE_CREATE_INDEX:
+        table = normalize_table(arg2)
+        if table in _SQLITE_INTERNAL_TABLES:
+            return sqlite3.SQLITE_OK
+        if table in _CORE_TABLES:
+            return sqlite3.SQLITE_OK
+        return deny(f"Core-only DB operation attempted to index non-core table {table!r}")
+
+    # Default: allow unknown actions. The trace callback guard remains in place
+    # and provides higher-fidelity errors than SQLite's "not authorized" message.
+    return sqlite3.SQLITE_OK
+
+
+def _install_core_only_guards(conn: sqlite3.Connection) -> None:
+    conn.set_trace_callback(_assert_core_only_sql)
+    try:
+        _clear_core_only_violation()
+        conn.set_authorizer(_core_only_authorizer)
+    except Exception:
+        # Some builds may not expose authorizers; trace guard still applies.
+        pass
+
+
+def _clear_core_only_guards(conn: sqlite3.Connection) -> None:
+    try:
+        conn.set_trace_callback(None)
+    except Exception:
+        pass
+    try:
+        conn.set_authorizer(None)
+    except Exception:
+        pass
+    _clear_core_only_violation()
+
+
+def _normalize_ident(ident: str) -> str:
+    ident = _SQL_WS.sub(" ", ident.strip())
+    m = _SQL_QUOTED.match(ident)
+    if m:
+        ident = m.group(1)
+    if "." in ident:
+        ident = ident.split(".")[-1]
+    return ident.strip().strip('"').strip("`").strip("[").strip("]").lower()
+
+
+def _extract_table_after(prefix_pattern: str, sql_upper: str) -> str | None:
+    m = re.search(prefix_pattern, sql_upper)
+    if not m:
+        return None
+    return m.group(1)
+
+
+def _assert_core_only_sql(statement: str) -> None:
+    """
+    Best-effort guard: refuse statements that would mutate non-core tables.
+
+    This is not a SQL parser. It is intentionally conservative and designed to
+    catch accidental core mutations of plugin-owned tables during migrations and
+    other core-managed phases.
+    """
+    s = statement.strip()
+    if not s:
+        return
+
+    s_upper = s.upper()
+    if s_upper.startswith(("PRAGMA ", "BEGIN", "COMMIT", "ROLLBACK", "SAVEPOINT", "RELEASE")):
+        return
+
+    if s_upper.startswith(("ATTACH ", "DETACH ", "VACUUM", "REINDEX", "ANALYZE")):
+        raise CoreDbOwnershipError(f"Core-only DB operation attempted: {s.strip()}")
+
+    # Disallow destructive operations in core-only mode (core migrations should be additive).
+    if s_upper.startswith("DROP "):
+        raise CoreDbOwnershipError(f"Core-only DB operation attempted: {s.strip()}")
+
+    candidates: list[tuple[str, str]] = []
+
+    op = "INSERT"
+    table = _extract_table_after(r"\bINSERT\s+INTO\s+([^\s(]+)", s_upper)
+    if table:
+        candidates.append((op, table))
+
+    op = "REPLACE"
+    table = _extract_table_after(r"\bREPLACE\s+INTO\s+([^\s(]+)", s_upper)
+    if table:
+        candidates.append((op, table))
+
+    op = "UPDATE"
+    table = _extract_table_after(r"\bUPDATE\s+([^\s]+)", s_upper)
+    if table:
+        candidates.append((op, table))
+
+    op = "DELETE"
+    table = _extract_table_after(r"\bDELETE\s+FROM\s+([^\s]+)", s_upper)
+    if table:
+        candidates.append((op, table))
+
+    op = "ALTER TABLE"
+    table = _extract_table_after(r"\bALTER\s+TABLE\s+([^\s]+)", s_upper)
+    if table:
+        candidates.append((op, table))
+
+    op = "CREATE TABLE"
+    table = _extract_table_after(r"\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([^\s(]+)", s_upper)
+    if table:
+        candidates.append((op, table))
+
+    if "CREATE INDEX" in s_upper or "CREATE UNIQUE INDEX" in s_upper:
+        op = "CREATE INDEX"
+        table = _extract_table_after(r"\bON\s+([^\s(]+)", s_upper)
+        if table:
+            candidates.append((op, table))
+
+    for op, raw in candidates:
+        ident = _normalize_ident(raw)
+        if ident.startswith("sqlite_"):
+            continue
+        if ident not in _CORE_TABLES:
+            raise CoreDbOwnershipError(
+                f"Core-only DB operation attempted to modify non-core table {ident!r}: {s.strip()}"
+            )
+        if op in {"INSERT", "UPDATE", "DELETE", "REPLACE"} and ident not in _CORE_DML_ALLOWED:
+            raise CoreDbOwnershipError(
+                f"Core-only DB operation attempted to mutate plugin-owned rows in {ident!r}: {s.strip()}"
+            )
 
 
 class SqliteProjectDb(ProjectDb):
@@ -122,10 +389,16 @@ class SqliteProjectDb(ProjectDb):
         return self._ready
 
     def execute_write(self, fn: Callable[[sqlite3.Connection], T]) -> Future[T]:
-        return self._submit(fn)
+        return self._submit(fn, core_only=False)
 
     def execute_read(self, fn: Callable[[sqlite3.Connection], T]) -> Future[T]:
-        return self._submit(fn)
+        return self._submit(fn, core_only=False)
+
+    def execute_core_write(self, fn: Callable[[sqlite3.Connection], T]) -> Future[T]:
+        return self._submit(fn, core_only=True)
+
+    def execute_core_read(self, fn: Callable[[sqlite3.Connection], T]) -> Future[T]:
+        return self._submit(fn, core_only=True)
 
     def kv_get(self, plugin_id: PluginId, key: str) -> Future[object | None]:
         plugin = str(plugin_id)
@@ -273,14 +546,21 @@ class SqliteProjectDb(ProjectDb):
     # Internals
     # ------------------------------------------------------------------
 
-    def _submit(self, fn: Callable[[sqlite3.Connection], T]) -> Future[T]:
+    def _submit(self, fn: Callable[[sqlite3.Connection], T], *, core_only: bool) -> Future[T]:
         with self._lock:
             if self._closed:
                 future: Future[T] = Future()
                 future.set_exception(RuntimeError("ProjectDb is closed"))
                 return future
             future = Future()
-            self._tasks.put(_DbTask(fn=fn, future=future, context=contextvars.copy_context()))
+            self._tasks.put(
+                _DbTask(
+                    fn=fn,
+                    future=future,
+                    context=contextvars.copy_context(),
+                    core_only=bool(core_only),
+                )
+            )
             return future  # type: ignore[return-value]
 
     def _run(self) -> None:
@@ -312,16 +592,29 @@ class SqliteProjectDb(ProjectDb):
                 if task.future.cancelled():
                     continue
                 try:
+                    if task.core_only:
+                        _install_core_only_guards(conn)
                     result = task.context.run(task.fn, conn)
                     conn.commit()
                     task.future.set_result(result)
                 except Exception as exc:
                     conn.rollback()
+                    if task.core_only and isinstance(exc, sqlite3.DatabaseError):
+                        msg = str(exc).lower()
+                        if "not authorized" in msg or "authoriz" in msg:
+                            violation = _get_core_only_violation()
+                            if violation:
+                                err = CoreDbOwnershipError(violation)
+                                err.__cause__ = exc
+                                exc = err
                     log.exception(
                         "ProjectDb task failed",
                         extra={"operation": "db_task", "phase": "error"},
                     )
                     task.future.set_exception(exc)
+                finally:
+                    if task.core_only:
+                        _clear_core_only_guards(conn)
         finally:
             try:
                 conn.close()

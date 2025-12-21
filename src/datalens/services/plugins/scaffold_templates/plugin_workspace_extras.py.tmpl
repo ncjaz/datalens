@@ -1,0 +1,16 @@
+
+    def create_workspace_widget(self, parent, ctx: PluginAppContext):
+        """
+        Create and return the workspace QWidget for this plugin.
+
+        This method runs on the Qt/UI thread.
+        """
+        from PySide6.QtWidgets import QWidget
+
+        from .ui.workspace import WorkspaceWidget
+
+        widget = WorkspaceWidget(parent)
+        if not isinstance(widget, QWidget):
+            raise TypeError("WorkspaceWidget must be a QWidget")
+        return widget
+

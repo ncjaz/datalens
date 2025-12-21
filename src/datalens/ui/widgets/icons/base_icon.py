@@ -13,7 +13,7 @@ class BaseIconWidget(ThemedWidget):
     Base icon widget.
 
     - Knows its IconDefinition.
-    - Has helpers: primary_color(), secondary_color(), etc.
+    - Uses the app theme (primary/secondary/tertiary, background, etc.).
     - Concrete subclasses implement _paint_icon().
     """
 

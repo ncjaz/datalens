@@ -1,0 +1,79 @@
+from __future__ import annotations
+
+from datalens.api.plugins import (
+    PluginAppContext,
+    PluginFutureResult,
+    PluginId,
+    PluginProjectContext,
+    ProjectAwarePlugin,
+    get_logger,
+)
+
+
+log = get_logger(__name__)
+
+
+class ${PLUGIN_CLASS_NAME}(ProjectAwarePlugin):
+    """Plugin runtime entrypoint for `${PLUGIN_NAME}`.
+
+    Important:
+    - Hooks may run with *no project open* (app startup, user closes project, etc.).
+      Only touch project resources in project hooks.
+    - Hooks run on the caller thread (often a background loader stage). Keep hooks fast.
+    - Do not touch Qt widgets from background threads; marshal to UI thread if needed.
+
+    Typical order:
+    - `on_load` once when enabled
+    - `on_project_migrate` then `on_project_opened` when a project is opened
+    - `on_project_closing` on close/switch (return Futures to allow core to await flush)
+    - `on_unload` when disabled or app exits
+    """
+
+    @property
+    def plugin_id(self) -> PluginId:
+        return PluginId("${PLUGIN_ID}")
+
+    # ------------------------------------------------------------------
+    # App-scope hooks
+    # ------------------------------------------------------------------
+
+    def on_app_loaded(self, ctx: PluginAppContext) -> None:
+        """App-scope setup (menus, actions, registering capabilities/commands)."""
+        return None
+
+    def on_app_unloaded(self, ctx: PluginAppContext) -> None:
+        """App-scope teardown (disconnect actions, stop background services)."""
+        return None
+
+    def register_shortcuts(self, ctx: PluginAppContext) -> None:
+        """Optional: expose commands in Preferences -> Keyboard Shortcuts."""
+        return None
+
+    def on_focus(self, ctx: PluginAppContext) -> None:
+        """Workspace became active in the UI (best-effort)."""
+        return None
+
+    def on_defocus(self, ctx: PluginAppContext) -> None:
+        """Workspace is no longer active in the UI (best-effort)."""
+        return None
+
+    # ------------------------------------------------------------------
+    # Project-scope hooks
+    # ------------------------------------------------------------------
+
+    def on_project_migrate(self, ctx: PluginProjectContext) -> PluginFutureResult:
+        """Create/migrate plugin-owned tables."""
+        return None
+
+    def on_project_ready(self, ctx: PluginProjectContext) -> PluginFutureResult:
+        """Project opened: start project-scoped watchers/pipelines, load state from DB."""
+        return None
+
+    def on_project_teardown(self, ctx: PluginProjectContext) -> PluginFutureResult:
+        """Project closing: stop pipelines and return flush Futures (if any)."""
+        return None
+
+${WORKSPACE_EXTRAS}
+
+def get_plugin() -> ProjectAwarePlugin:
+    return ${PLUGIN_CLASS_NAME}()

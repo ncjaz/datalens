@@ -1,25 +1,17 @@
-﻿datalens.infra.streaming.ring\_buffer
-=====================================
+﻿ring_buffer
+===========
+
+.. currentmodule:: datalens.infra.streaming.ring_buffer
+
+**Full import path:** ``datalens.infra.streaming.ring_buffer``
+
+.. code-block:: python
+
+   from datalens.infra.streaming import ring_buffer
+   # or (import a symbol defined in the module)
+   from datalens.infra.streaming.ring_buffer import <symbol>
 
 .. automodule:: datalens.infra.streaming.ring_buffer
-
-   
-   .. rubric:: Functions
-
-   .. autosummary::
-   
-      RLock
-      dataclass
-   
-   .. rubric:: Classes
-
-   .. autosummary::
-   
-      Condition
-      Generic
-      ReadSinceResult
-      RingBuffer
-      RingBufferItem
-      Subscription
-      TypeVar
-   
+   :members:
+   :undoc-members:
+   :show-inheritance:

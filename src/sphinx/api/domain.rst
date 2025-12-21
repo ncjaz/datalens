@@ -7,9 +7,10 @@ Domain
    datalens.domain
    datalens.domain.projects
    datalens.domain.media
-   datalens.domain.settings
+   datalens.domain.system.settings
+   datalens.domain.system.shortcuts
    datalens.domain.datasources
-   datalens.domain.plugins
+   datalens.domain.plugin
    datalens.domain.annotations.core
    datalens.domain.annotations.boxes
    datalens.domain.annotations.polygons
@@ -19,4 +20,3 @@ Domain
    datalens.domain.models.segmentation
    datalens.domain.ui.icons
    datalens.domain.ui.theme
-

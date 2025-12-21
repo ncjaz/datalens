@@ -9,7 +9,7 @@
   "features": [
     {
       "id": "workspace",
-      "kind": "tab",
+      "kind": "workspace",
       "entrypoint": "datalens.plugins.review.review:ReviewWorkspace",
       "display_name": "Review",
       "description": "Review and validate annotation quality."

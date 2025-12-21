@@ -74,3 +74,10 @@ Practical guidance:
 - {doc}`local_socket` — `QLocalServer` / `QLocalSocket` control-plane protocol (RPC + events)
 - {doc}`shared_memory` — shared memory “data plane” + socket notifications (high-rate payloads)
 
+```{toctree}
+:hidden:
+
+processes
+local_socket
+shared_memory
+```

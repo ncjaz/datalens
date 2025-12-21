@@ -8,5 +8,20 @@ it defines the contracts for a single plugin definition.
 Keep this shim so internal code and Sphinx autosummary don't break.
 """
 
-from datalens.domain.plugin import *  # noqa: F403
+from datalens.domain.plugin import (
+    PluginDefinition,
+    PluginFeature,
+    PluginGroupId,
+    PluginId,
+    PluginKind,
+    PluginStage,
+)
 
+__all__ = [
+    "PluginDefinition",
+    "PluginFeature",
+    "PluginGroupId",
+    "PluginId",
+    "PluginKind",
+    "PluginStage",
+]

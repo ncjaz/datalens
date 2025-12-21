@@ -7,6 +7,7 @@ relevant modules instead of scrolling through a single monolithic page.
 .. toctree::
    :maxdepth: 1
 
+   api/public_api
    api/core
    api/domain
    api/plugins

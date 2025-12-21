@@ -18,6 +18,10 @@ Logs are written under the per-user DataLens data directory:
 
 The file is rotated by size (see `datalens.core.logging.init_logging`).
 
+You can disable file logging (stderr/console only) when launching the app:
+
+`python -m datalens.app --no-log-file`
+
 ## Why the logging module lives in `datalens.core`
 
 Logging is an infrastructure concern, but in V2 we treat `datalens.core` as the
@@ -49,6 +53,18 @@ log = get_logger(__name__)
 def do_work() -> None:
     log.info("Hello from my plugin")
 ```
+
+## Loader dialog progress integration
+
+If your code runs under the loader dialog, you can emit user-facing status lines without needing a `LoaderContext`:
+
+```python
+log.progress("Indexing images…")
+```
+
+This is still a normal log record, but it is also mirrored into the active loader dialog (best-effort).
+
+See :doc:`../ui/loader` for details and the user-configurable loader mirroring preferences.
 
 ## When logs are saved (async pipeline)
 
@@ -121,7 +137,7 @@ with bind_log_context(subsystem="streaming", stream_key="capture.rgb"):
     log.info("Publishing frame")
 ```
 
-## Donâ€™t log high-rate data
+## Don't log high-rate data
 
 Avoid logging per-frame/per-sample information in tight loops (video, streaming, model inference).
 Prefer periodic summaries and counters.

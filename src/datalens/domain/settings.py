@@ -22,6 +22,12 @@ class AppSettings:
     # Last opened project root (if any)
     last_project_root: Path | None = None
 
+    # Recently opened projects (most recent first)
+    recent_projects: tuple[Path, ...] = field(default_factory=tuple)
+
+    # Welcome window UI state (app/user scoped).
+    welcome_splitter_state_b64: str | None = None
+
     # IDs of plugins that are enabled globally
     enabled_plugins: frozenset[PluginId] = field(default_factory=frozenset)
 

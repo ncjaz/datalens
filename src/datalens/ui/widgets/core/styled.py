@@ -11,8 +11,10 @@ class StyledControl(Protocol):
     Protocol for widgets that support applying an AppTheme and can be
     re-themed at runtime.
 
-    Any class implementing:
+    Any class implementing::
+
         def apply_theme(self, theme: AppTheme) -> None: ...
+
     is considered a StyledControl.
     """
 
@@ -69,7 +71,7 @@ class StyledMixin:
         """
         Set the global default pill shape for all StyledMixin-based controls.
 
-        Typical usage at startup after loading settings:
+        Typical usage at startup after loading settings::
 
             StyledMixin.set_global_pill_style(
                 radius=settings.control_pill_radius,
@@ -173,7 +175,7 @@ class StyledMixin:
                 The current AppTheme instance.
             default_base:
                 The default base (unselected) background for this control,
-                e.g. theme.settings.secondary_color.
+                e.g. theme.settings.background_color.
             default_selected:
                 The default selected background for this control,
                 e.g. theme.settings.primary_color or theme.settings.accent_confirm.

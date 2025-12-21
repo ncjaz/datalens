@@ -9,7 +9,7 @@
   "features": [
     {
       "id": "workspace",
-      "kind": "tab",
+      "kind": "workspace",
       "entrypoint": "datalens.plugins.annotation.annotation:AnnotationWorkspace",
       "display_name": "Annotation",
       "description": "Annotate images with boxes and polygons."

@@ -1,0 +1,13 @@
+from __future__ import annotations
+
+from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
+
+
+class WorkspaceWidget(QWidget):
+    """Starter workspace UI for `${PLUGIN_ID}`."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Workspace: ${PLUGIN_NAME}"))
+

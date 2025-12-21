@@ -57,6 +57,41 @@ class _QtEnum:
 
 qtcore.Qt = type("Qt", (), {"__getattr__": lambda self, name: _QtEnum(0)})()
 
+
+def _qt_slot(*_types, **_kwargs):  # type: ignore[override]
+    # PySide Slot is a decorator factory: @Slot(int, str) -> decorator(fn)->fn
+    def _decorator(fn):
+        return fn
+
+    return _decorator
+
+
+def _qt_signal(*_types, **_kwargs):  # type: ignore[override]
+    # PySide Signal is used as a class attribute. For autodoc, we just need it
+    # to be instantiable and expose a no-op connect()/emit().
+    class _Signal:
+        def connect(self, *_a, **_k):
+            return None
+
+        def emit(self, *_a, **_k):
+            return None
+
+    return _Signal()
+
+
+class _QtTimer:
+    @staticmethod
+    def singleShot(_ms: int, fn):
+        try:
+            fn()
+        except Exception:
+            return None
+
+
+qtcore.Slot = _qt_slot
+qtcore.Signal = _qt_signal
+qtcore.QTimer = _QtTimer
+
 qtgui = _make_qt_stub_module("PySide6.QtGui", ["QColor", "QIcon", "QPainter", "QPixmap"])
 qtwidgets = _make_qt_stub_module(
     "PySide6.QtWidgets", ["QApplication", "QWidget", "QMainWindow", "QDialog"]
@@ -115,7 +150,11 @@ source_suffix = {
     ".md": "markdown",
 }
 
-root_doc = "sphinx/index"
+# Sphinx master document (relative to this source directory).
+#
+# Note: The docs source root is `datalens/src/sphinx/`, so the root doc is
+# simply `index.rst` (not `sphinx/index.rst`).
+root_doc = "index"
 
 templates_path = ["_templates"]
 exclude_patterns: list[str] = [
@@ -129,6 +168,16 @@ exclude_patterns: list[str] = [
     "sphinx/_static/**",
     "sphinx/_build/**",
 ]
+
+# `sphinx/plugin_dev/*` is built as a separate site (`make html-plugin`). When
+# building the main site, exclude it to avoid duplicate toctree inclusions.
+_include_plugin_dev = os.environ.get("DATALENS_DOCS_INCLUDE_PLUGIN_DEV", "").lower() in {
+    "1",
+    "true",
+    "yes",
+}
+if not _include_plugin_dev:
+    exclude_patterns.append("sphinx/plugin_dev/**")
 
 html_theme = os.environ.get("SPHINX_THEME", "furo")
 html_static_path = ["_static"]

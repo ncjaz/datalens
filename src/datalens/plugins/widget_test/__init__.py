@@ -1,0 +1,8 @@
+"""Plugin package: widget test.
+
+This plugin is loaded by DataLens via `manifest.json` and `plugin.py`.
+Subpackages may be generated depending on the plugin kind:
+
+- `ui/`: widgets/panels for workspace UI (WORKSPACE plugins)
+- `services/`: plugin logic/use-cases (SERVICE/DATASOURCE/MODEL plugins)
+"""

@@ -8,7 +8,7 @@ import time
 from typing import Any, Optional
 
 from datalens.core.app_settings import load_app_settings, save_app_settings
-from datalens.domain.settings import AppSettings
+from datalens.domain.system.settings import AppSettings
 from datalens.infra.paths import settings_json_path
 
 
@@ -31,6 +31,7 @@ class SettingsStore:
     Convenience helper around the persisted `settings.json`.
 
     Goals:
+
     - Make it easy to safely update settings without repeating load/replace/save
       boilerplate.
     - Keep writes atomic (delegates to `save_app_settings`).
@@ -157,26 +158,30 @@ class DebouncedSettingsWriter:
             if self._stop.is_set():
                 return
 
-            # Debounce window: keep waiting while new writes come in.
-            deadline = time.monotonic() + self._debounce_seconds
+            # Debounce window: wait until there have been no new requests for
+            # `debounce_seconds`. Important: `Event.wait()` does not clear the
+            # event; we must clear it ourselves between waits to avoid a
+            # zero-sleep busy loop when the event remains set.
             while True:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    break
+                self._wake.clear()
+                if self._stop.is_set():
+                    return
                 # If a new request comes in, extend the window.
-                if self._wake.wait(timeout=remaining):
-                    deadline = time.monotonic() + self._debounce_seconds
+                if self._wake.wait(timeout=self._debounce_seconds):
+                    continue
+                break
 
             with self._lock:
                 pending = self._pending
                 self._pending = None
-                self._wake.clear()
 
             if pending is not None:
                 self._store.save(pending)
 
 
 _DEFAULT_STORE: SettingsStore | None = None
+_DEFAULT_WRITER: DebouncedSettingsWriter | None = None
+_DEFAULT_WRITER_LOCK = threading.Lock()
 
 
 def default_settings_store() -> SettingsStore:
@@ -184,3 +189,17 @@ def default_settings_store() -> SettingsStore:
     if _DEFAULT_STORE is None:
         _DEFAULT_STORE = SettingsStore()
     return _DEFAULT_STORE
+
+
+def default_debounced_settings_writer(*, debounce_seconds: float = 0.25) -> DebouncedSettingsWriter:
+    """
+    Return a shared DebouncedSettingsWriter instance for the process.
+
+    This avoids spawning multiple background writer threads across short-lived
+    dialogs/widgets (welcome, preferences, etc.).
+    """
+    global _DEFAULT_WRITER
+    with _DEFAULT_WRITER_LOCK:
+        if _DEFAULT_WRITER is None:
+            _DEFAULT_WRITER = DebouncedSettingsWriter(default_settings_store(), debounce_seconds=debounce_seconds)
+        return _DEFAULT_WRITER

@@ -1,36 +1,17 @@
-﻿datalens.core.context
-=====================
+﻿context
+=======
+
+.. currentmodule:: datalens.core.context
+
+**Full import path:** ``datalens.core.context``
+
+.. code-block:: python
+
+   from datalens.core import context
+   # or (import a symbol defined in the module)
+   from datalens.core.context import <symbol>
 
 .. automodule:: datalens.core.context
-
-   
-   .. rubric:: Functions
-
-   .. autosummary::
-   
-      create_app_context
-      dataclass
-      default_io_writer
-      field
-      settings_store
-   
-   .. rubric:: Classes
-
-   .. autosummary::
-   
-      Any
-      AppContext
-      AppTheme
-      Callable
-      Future
-      IoWriter
-      Path
-      ProjectContext
-      ProjectDb
-   
-   .. rubric:: Exceptions
-
-   .. autosummary::
-   
-      NoActiveProjectError
-   
+   :members:
+   :undoc-members:
+   :show-inheritance:

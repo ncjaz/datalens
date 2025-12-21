@@ -1,27 +1,17 @@
-﻿datalens.services.config\_service
-=================================
+﻿config_service
+==============
+
+.. currentmodule:: datalens.services.config_service
+
+**Full import path:** ``datalens.services.config_service``
+
+.. code-block:: python
+
+   from datalens.services import config_service
+   # or (import a symbol defined in the module)
+   from datalens.services.config_service import <symbol>
 
 .. automodule:: datalens.services.config_service
-
-   
-   .. rubric:: Functions
-
-   .. autosummary::
-   
-      default_settings_store
-      load_app_settings
-      load_settings
-      save_app_settings
-      save_settings
-      settings_json_path
-      settings_store
-      update_settings
-   
-   .. rubric:: Classes
-
-   .. autosummary::
-   
-      AppSettings
-      Path
-      SettingsStore
-   
+   :members:
+   :undoc-members:
+   :show-inheritance:

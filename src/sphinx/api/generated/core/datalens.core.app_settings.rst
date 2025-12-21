@@ -1,27 +1,17 @@
-﻿datalens.core.app\_settings
-===========================
+﻿app_settings
+============
+
+.. currentmodule:: datalens.core.app_settings
+
+**Full import path:** ``datalens.core.app_settings``
+
+.. code-block:: python
+
+   from datalens.core import app_settings
+   # or (import a symbol defined in the module)
+   from datalens.core.app_settings import <symbol>
 
 .. automodule:: datalens.core.app_settings
-
-   
-   .. rubric:: Functions
-
-   .. autosummary::
-   
-      _settings_from_dict
-      _settings_to_dict
-      asdict
-      get_logger
-      load_app_settings
-      save_app_settings
-   
-   .. rubric:: Classes
-
-   .. autosummary::
-   
-      Any
-      AppSettings
-      Path
-      ThemeOpacitySettings
-      UserProfile
-   
+   :members:
+   :undoc-members:
+   :show-inheritance:
