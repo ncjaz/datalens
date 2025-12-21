@@ -70,14 +70,18 @@ class Toggle(QWidget, StyledMixin):
 
     """
 
-    # Emits ID of the selected option
+    # Emits ID of the selected option (exclusive mode only)
     selectionChanged = Signal(str)
+    # Emits (id, checked) whenever a segment toggles (both modes)
+    optionToggled = Signal(str, bool)
 
     def __init__(
         self,
         theme: AppTheme,
         left: ToggleOption,
         right: ToggleOption,
+        *,
+        exclusive: bool = True,
         parent: Optional[QWidget] = None,
     ) -> None:
         QWidget.__init__(self, parent)
@@ -86,6 +90,7 @@ class Toggle(QWidget, StyledMixin):
         self._theme = theme
         self._left = left
         self._right = right
+        self._exclusive = bool(exclusive)
 
         # Optional border override
         self._border_color_override: Optional[str] = None
@@ -96,7 +101,7 @@ class Toggle(QWidget, StyledMixin):
         self.setLayout(layout)
 
         self._group = QButtonGroup(self)
-        self._group.setExclusive(True)
+        self._group.setExclusive(bool(self._exclusive))
 
         # -----------------------------
         # Left button
@@ -126,8 +131,11 @@ class Toggle(QWidget, StyledMixin):
         self._group.addButton(self._btn_right)
         layout.addWidget(self._btn_right, 1)
 
-        # Default to "left" selected
-        self._btn_left.setChecked(True)
+        # Default selection:
+        # - exclusive: left selected (legacy behavior)
+        # - non-exclusive: nothing selected by default
+        if self._exclusive:
+            self._btn_left.setChecked(True)
 
         # Initial theme application
         self.apply_theme(theme)
@@ -155,7 +163,9 @@ class Toggle(QWidget, StyledMixin):
 
         base_bg, selected_bg, hover_unselected, hover_selected = self._resolve_colors(
             theme,
-            default_base=s.background_color,
+            # Use the app chrome surface so segmented toggles don't blend into the
+            # main window background (matches V1-style form controls).
+            default_base=theme.background_secondary_color,
             default_selected=s.primary_color,
         )
 
@@ -172,10 +182,12 @@ class Toggle(QWidget, StyledMixin):
 
         text_color = s.text_color
 
-        # Disabled colours: derived from theme opacity policy (consistent across UI)
-        disabled_bg = theme.disabled_fill_color(s.background_color)
+        # Disabled colours: derived from theme opacity policy (consistent across UI).
+        # Use the same surface as the base so per-segment disabling doesn't
+        # "jump" to the main window background colour.
+        disabled_bg = theme.disabled_fill_color(base_bg)
         disabled_text = theme.disabled_text_color()
-        disabled_border = theme.disabled_border_color(s.background_color)
+        disabled_border = theme.disabled_border_color(base_bg)
 
         qss = f"""
         QToolButton[segment="left"],
@@ -191,7 +203,9 @@ class Toggle(QWidget, StyledMixin):
         QToolButton[segment="left"] {{
             border-top-right-radius: 0px;
             border-bottom-right-radius: 0px;
-            border-right-width: 0px;
+            /* Keep a 1px divider between segments (avoid double thickness by
+               disabling the left border on the right segment). */
+            border-right-width: 1px;
         }}
 
         QToolButton[segment="right"] {{
@@ -239,6 +253,21 @@ class Toggle(QWidget, StyledMixin):
         """Returns the ID of the currently selected option."""
         return self._left.id if self._btn_left.isChecked() else self._right.id
 
+    @property
+    def checked_ids(self) -> set[str]:
+        """
+        Return the set of checked segment IDs.
+
+        - In exclusive mode this will always be a single id.
+        - In non-exclusive mode it may contain 0, 1, or 2 ids.
+        """
+        out: set[str] = set()
+        if self._btn_left.isChecked():
+            out.add(self._left.id)
+        if self._btn_right.isChecked():
+            out.add(self._right.id)
+        return out
+
     def set_current_id(self, id: str, emit: bool = True) -> None:
         """
         Programmatically set the selected option.
@@ -254,6 +283,42 @@ class Toggle(QWidget, StyledMixin):
 
         if emit:
             self.selectionChanged.emit(id)
+
+    def is_checked(self, id: str) -> bool:
+        """Return whether the segment `id` is checked."""
+        if id == self._left.id:
+            return bool(self._btn_left.isChecked())
+        if id == self._right.id:
+            return bool(self._btn_right.isChecked())
+        raise ValueError(f"Unknown toggle id: {id}")
+
+    def set_checked(self, id: str, checked: bool, *, emit: bool = True) -> None:
+        """
+        Set the checked state for a segment.
+
+        In exclusive mode this behaves like `set_current_id` when `checked=True`.
+        """
+        if id == self._left.id:
+            self._btn_left.setChecked(bool(checked))
+        elif id == self._right.id:
+            self._btn_right.setChecked(bool(checked))
+        else:
+            raise ValueError(f"Unknown toggle id: {id}")
+
+        if emit:
+            self.optionToggled.emit(str(id), bool(checked))
+            if self._exclusive and bool(checked):
+                self.selectionChanged.emit(str(id))
+
+    def set_option_enabled(self, id: str, enabled: bool) -> None:
+        """Enable/disable a single segment."""
+        if id == self._left.id:
+            self._btn_left.setEnabled(bool(enabled))
+            return
+        if id == self._right.id:
+            self._btn_right.setEnabled(bool(enabled))
+            return
+        raise ValueError(f"Unknown toggle id: {id}")
 
     def set_border_color(self, hex_color: str) -> None:
         """
@@ -282,6 +347,13 @@ class Toggle(QWidget, StyledMixin):
 
     def _make_handler(self, segment_id: str):
         def handler(checked: bool) -> None:
-            if checked:
+            self.optionToggled.emit(segment_id, bool(checked))
+            if self._exclusive and checked:
                 self.selectionChanged.emit(segment_id)
         return handler
+
+
+# Alias for readability in UI code: "segmented" describes the control better than
+# a generic "Toggle", and avoids Qt's own QAbstractButton::toggle naming clash.
+DatalensSegmentedToggle = Toggle
+DatalensSegmentedToggleOption = ToggleOption

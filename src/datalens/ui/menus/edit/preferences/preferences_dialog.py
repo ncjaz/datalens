@@ -25,6 +25,7 @@ from datalens.ui.qt_settings import QSettingsScope
 from datalens.ui.menus.edit.preferences.pages.file_paths import FilePathsPage
 from datalens.ui.menus.edit.preferences.pages.keyboard_shortcuts import KeyboardShortcutsPreferencesPage
 from datalens.ui.menus.edit.preferences.pages.loader import LoaderPreferencesPage
+from datalens.ui.menus.edit.preferences.pages.plugin_preferences import PluginPreferencesPage
 from datalens.ui.menus.edit.preferences.pages.theme import ThemePreferencesPage
 from datalens.ui.menus.edit.preferences.pages.user_interface import UserInterfacePreferencesPage
 
@@ -100,6 +101,10 @@ class PreferencesDialog(QDialog):
         shortcuts_parent = self._add_nav_item("keyboard_shortcuts", "Keyboard Shortcuts", None)
         self._add_page("keyboard_shortcuts", "Keyboard Shortcuts", KeyboardShortcutsPreferencesPage())
         self._register_dynamic_children("keyboard_shortcuts", shortcuts_parent, self._shortcut_plugins_provider)
+
+        plugins_parent = self._add_nav_item("plugins", "Plugins", None)
+        self._add_page("plugins", "Plugins", PluginPreferencesPage())
+        self._register_dynamic_children("plugins", plugins_parent, self._plugins_provider)
         self._subscribe_dynamic_nav_events()
 
         nav.currentItemChanged.connect(self._on_nav_changed)
@@ -192,7 +197,9 @@ class PreferencesDialog(QDialog):
                 # Provider may return a group->children mapping for two-level nav.
                 if isinstance(items, dict):
                     for group_title, children in items.items():
-                        group_title = str(group_title).strip() or "Other"
+                        # Default group label depends on the section (e.g. Plugins vs shortcuts).
+                        fallback_group = {"keyboard_shortcuts": "Plugin", "plugins": "General"}.get(base_key, "General")
+                        group_title = str(group_title).strip() or fallback_group
                         # Group nodes are organizational only; selecting them shows the base page.
                         group_item = self._add_nav_item(base_key, group_title, parent)
                         for child_key, title in children:
@@ -217,7 +224,7 @@ class PreferencesDialog(QDialog):
 
         Note: This only includes enabled plugins (disabled plugins are not imported).
         """
-        out: dict[str, list[tuple[str, str]]] = {}
+        out: dict[str, list[tuple[str, str]]] = {"General": [("__general__", "General")]}
         snap = get_app_context().shortcuts.snapshot()
         if not snap.pages:
             return out
@@ -229,7 +236,20 @@ class PreferencesDialog(QDialog):
             name = str(page.get("plugin_name") or pid).strip() or pid
             plugin_name_by_id.setdefault(pid, name)
 
-        # Resolve grouping from the discovered registry (includes overrides).
+        if plugin_name_by_id:
+            out["Plugin"] = sorted(plugin_name_by_id.items(), key=lambda kv: kv[1].lower())
+
+        out = dict(sorted(out.items(), key=lambda kv: kv[0].lower()))
+        return out
+
+    def _plugins_provider(self) -> dict[str, list[tuple[str, str]]]:
+        """
+        Return group -> [(plugin_id, plugin_name)] for all discovered plugins.
+
+        Unlike Keyboard Shortcuts, this includes disabled plugins because schema-driven
+        preferences are metadata-only (manifest).
+        """
+        out: dict[str, list[tuple[str, str]]] = {}
         try:
             app_ctx = get_app_context()
             host = getattr(app_ctx, "plugin_host", None)
@@ -237,18 +257,19 @@ class PreferencesDialog(QDialog):
         except Exception:
             registry = None
 
-        for plugin_id, plugin_name in plugin_name_by_id.items():
-            group = "Other"
-            if registry is not None:
-                try:
-                    record = registry.get(PluginId(plugin_id))
-                    if record is not None:
-                        raw = getattr(record.definition, "group", None)
-                        if isinstance(raw, str) and raw.strip():
-                            group = raw.strip()
-                except Exception:
-                    group = "Other"
-            out.setdefault(group, []).append((plugin_id, plugin_name))
+        if registry is None:
+            return out
+
+        for record in registry.all():
+            pid = str(record.definition.id)
+            name = str(record.definition.name or pid).strip() or pid
+            group = "General"
+            raw_group = getattr(record.definition, "group", None)
+            if isinstance(raw_group, str) and raw_group.strip():
+                group = raw_group.strip()
+                if group.lower() in {"other", "others"}:
+                    group = "General"
+            out.setdefault(group, []).append((pid, name))
 
         for group, items in list(out.items()):
             out[group] = sorted(items, key=lambda kv: kv[1].lower())

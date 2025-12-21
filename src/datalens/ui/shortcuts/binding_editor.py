@@ -90,6 +90,16 @@ class ShortcutBindingEditor(QWidget):
     def is_recording(self) -> bool:
         return bool(self._recording)
 
+    def set_reset_enabled(self, enabled: bool) -> None:
+        """
+        Enable/disable the Reset control, if present.
+
+        This is used by the Preferences UI to visually indicate whether a binding
+        is currently following defaults (Reset disabled) or user-overridden (Reset enabled).
+        """
+        if self._reset_btn is not None:
+            self._reset_btn.setEnabled(bool(enabled))
+
     def set_chord(self, chord: str | None, *, emit_signal: bool = True) -> None:
         self._edit.setText(chord or "")
         if emit_signal:

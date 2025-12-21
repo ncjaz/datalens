@@ -60,10 +60,15 @@ Recommended approach:
   directory.
 - The plugin loader reads that file for display/diagnostics (so we can show what
   a plugin depends on).
-- **No automatic installation is performed yet**. Dependencies must already be
-  installed in the active Python environment.
-- Future: a plugin manager workflow can check whether those requirements are
-  satisfied and offer a guided install experience.
+- Dependencies must already be installed in the active Python environment for
+  the plugin to load.
+- The **Manage Plugins** dialog includes a small V1-style helper:
+  - it checks whether `requirements.txt` specifiers are satisfied
+  - it can optionally install missing requirements into the current environment
+    (experimental; requires a restart)
+  - disable via `DATALENS_ENABLE_PLUGIN_INSTALLER=0`
+- Future: per-plugin isolated environments (venv/out-of-process plugins) for
+  robust installs without dependency conflicts.
 
 Why derive from `requirements.txt`?
 

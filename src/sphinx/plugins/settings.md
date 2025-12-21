@@ -40,6 +40,8 @@ As a rule of thumb:
 Use the settings helpers so updates are atomic (load → replace → save) and safe
 to call from background threads:
 
+For plugin-defined preferences (schema-driven, shown in Preferences → Plugins), see `plugins/preferences.md`.
+
 ```python
 from dataclasses import replace
 

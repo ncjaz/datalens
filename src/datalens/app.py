@@ -65,6 +65,30 @@ def _startup_task(ctx: LoaderContext) -> object:
     loader UX. Heavy systems (plugins/services) should be added later.
     """
     ctx.log("Starting DataLens...")
+
+    # System specs: collect once at startup so diagnostics + plugins can gate
+    # behavior without needing env vars/CLI switches. GPU probing can call
+    # external tools, so keep it best-effort and time-bounded.
+    try:
+        from dataclasses import replace
+
+        from datalens.core.context import get_app_context
+        from datalens.services.system_info_service import collect_gpu_info_best_effort, collect_system_info_base
+
+        app_ctx = get_app_context()
+        current = app_ctx.workspace_state.snapshot().system_info
+        base = current or collect_system_info_base()
+        if not getattr(base, "gpu_probe_completed", False):
+            ctx.log("Detecting system specs...")
+            gpus = collect_gpu_info_best_effort(timeout_s=1.0)
+            app_ctx.workspace_state.set_system_info(
+                replace(base, gpus=tuple(gpus), gpu_probe_completed=True)
+            )
+    except Exception:
+        # Best-effort diagnostics only; never block startup on this.
+        get_logger(__name__).debug(
+            "System specs probe failed during startup (best-effort)", exc_info=True
+        )
     try:
         from datalens.infra.paths import settings_json_path
 
@@ -194,6 +218,11 @@ def main(argv: list[str] | None = None) -> int:
             app.app_context.shortcuts.apply_settings(updated)
         except Exception:
             log.debug("Failed to apply shortcut settings (best-effort)", exc_info=True)
+        try:
+            # Keep plugin preferences cache warm so plugins/UI can query without disk IO.
+            app.app_context.preferences.apply_settings(updated)
+        except Exception:
+            log.debug("Failed to apply plugin preferences settings (best-effort)", exc_info=True)
         selected_root = None
         try:
             selected_root = welcome.selected_project_root()
@@ -235,6 +264,10 @@ def main(argv: list[str] | None = None) -> int:
                     app.app_context.shortcuts.apply_settings(settings)
                 except Exception:
                     log.debug("Failed to apply shortcut settings on startup (best-effort)", exc_info=True)
+                try:
+                    app.app_context.preferences.apply_settings(settings)
+                except Exception:
+                    log.debug("Failed to apply plugin preferences settings on startup (best-effort)", exc_info=True)
 
                 if args.skip_welcome and settings.enabled_plugins:
                     show_main(

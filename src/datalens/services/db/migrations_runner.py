@@ -25,7 +25,7 @@ class AppMeta:
 
 DEFAULT_APP_VERSION = "1.0"
 DEFAULT_DB_VERSION = "1.0"
-DEFAULT_SCHEMA_VERSION = 2
+DEFAULT_SCHEMA_VERSION = 3
 
 
 class CoreSchemaError(RuntimeError):
@@ -97,6 +97,30 @@ def ensure_core_schema(
             )
             """
         )
+
+    if int(schema_version) >= 3:
+        # Project media index (core-owned): canonical table for files created/discovered in a project.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS media_files (
+                media_id         TEXT PRIMARY KEY,
+                relative_path    TEXT NOT NULL UNIQUE,
+                dir_rel          TEXT NOT NULL,
+                filename         TEXT NOT NULL,
+                ext              TEXT NOT NULL,
+                size_bytes       INTEGER NOT NULL DEFAULT 0,
+                sha256           TEXT NULL,
+                created_at_s     REAL NULL,
+                discovered_at_s  REAL NOT NULL,
+                source_plugin_id TEXT NULL,
+                source_kind      TEXT NOT NULL,
+                mime             TEXT NULL
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS media_files_dir_rel ON media_files(dir_rel)")
+        conn.execute("CREATE INDEX IF NOT EXISTS media_files_sha256 ON media_files(sha256)")
+        conn.execute("CREATE INDEX IF NOT EXISTS media_files_discovered_at ON media_files(discovered_at_s)")
 
     # Initialize or update the app_meta row.
     conn.execute(
@@ -171,6 +195,7 @@ class CoreDbInspection:
     has_app_meta: bool
     has_plugin_kv: bool
     has_plugin_meta: bool
+    has_media_files: bool
 
 
 def inspect_core_db(conn: sqlite3.Connection) -> CoreDbInspection:
@@ -186,6 +211,7 @@ def inspect_core_db(conn: sqlite3.Connection) -> CoreDbInspection:
         has_app_meta=has_table(conn, "app_meta"),
         has_plugin_kv=has_table(conn, "plugin_kv"),
         has_plugin_meta=has_table(conn, "plugin_meta"),
+        has_media_files=has_table(conn, "media_files"),
     )
 
 
@@ -242,7 +268,7 @@ def decide_core_open_action(
     if v == supported_schema_version:
         # If core meta exists but other core tables are missing, we can apply a safe,
         # additive "repair" by ensuring core schema exists.
-        if inspection.has_plugin_kv and (v < 2 or inspection.has_plugin_meta):
+        if inspection.has_plugin_kv and (v < 2 or inspection.has_plugin_meta) and (v < 3 or inspection.has_media_files):
             return CoreOpenDecision(kind="ok")
         return CoreOpenDecision(kind="ensure")
 
@@ -302,6 +328,17 @@ def migrate_core_schema(
         )
         conn.execute("PRAGMA user_version = 2;")
         v = 2
+
+    # v2 -> v3: add core media index table and bump user_version.
+    if v == 2 and to_v >= 3:
+        ensure_core_schema(
+            conn,
+            app_version=app_version,
+            db_version=db_version,
+            schema_version=3,
+        )
+        conn.execute("PRAGMA user_version = 3;")
+        v = 3
 
     if v != to_v:
         raise CoreSchemaError(f"No migration path implemented for schema {v} -> {to_v}")

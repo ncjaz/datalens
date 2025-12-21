@@ -9,7 +9,16 @@ def datalens_user_data_dir(*, app_name: str = "datalens") -> Path:
     Return the per-user DataLens data directory.
 
     This is where logs and lightweight config (JSON) live.
+
+    Can be overridden by setting DATALENS_USER_DATA_DIR environment variable
+    (primarily used for testing isolation).
     """
+    # Check for testing/override environment variable first
+    override = os.environ.get("DATALENS_USER_DATA_DIR")
+    if override:
+        return Path(override)
+
+    # Use platform-specific default paths
     if os.name == "nt":
         root = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA") or str(Path.home())
         return Path(root) / app_name
@@ -20,7 +29,15 @@ def datalens_user_data_dir(*, app_name: str = "datalens") -> Path:
 
 
 def settings_json_path() -> Path:
-    """Default path for persisted AppSettings."""
+    """
+    Default path for persisted AppSettings.
+
+    Can be overridden by setting DATALENS_SETTINGS_PATH environment variable
+    (primarily used for testing isolation).
+    """
+    override = os.environ.get("DATALENS_SETTINGS_PATH")
+    if override:
+        return Path(override)
     return datalens_user_data_dir() / "settings.json"
 
 

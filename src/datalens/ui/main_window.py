@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtWidgets import QMainWindow, QWidget
+from PySide6.QtCore import Qt
 
 from datalens.domain.plugin import PluginId
 from datalens.services.plugins.registry import PluginRecord
@@ -10,6 +11,7 @@ from datalens.services.settings_store import default_settings_store
 from datalens.ui.main_window_components import (
     MainWindowUiStateController,
     ProjectActionsController,
+    StatusBarController,
     WorkspacesController,
     try_get_app_context,
 )
@@ -33,6 +35,19 @@ class MainWindow(QMainWindow):
         enabled_plugin_ids: set[str] | None = None,
     ) -> None:
         super().__init__(parent)
+        # Explicitly ensure normal OS window chrome (title bar + caption buttons).
+        # Some style/plugin combinations can tweak flags; keep this stable.
+        flags = self.windowFlags()
+        flags &= ~Qt.FramelessWindowHint
+        self.setWindowFlags(
+            flags
+            | Qt.Window
+            | Qt.WindowTitleHint
+            | Qt.WindowSystemMenuHint
+            | Qt.WindowMinimizeButtonHint
+            | Qt.WindowMaximizeButtonHint
+            | Qt.WindowCloseButtonHint
+        )
         self.setWindowTitle("DataLens")
         self.resize(1200, 800)
 
@@ -51,6 +66,7 @@ class MainWindow(QMainWindow):
         self._workspaces = WorkspacesController(self, plugins=self._plugins, enabled_plugin_ids=self._enabled_plugin_ids)
         self.setCentralWidget(self._workspaces.central_widget)
 
+        self._status_bar = StatusBarController(self)
         self._ui_state = MainWindowUiStateController(self)
 
         def set_recent_projects(new: list[Path]) -> None:

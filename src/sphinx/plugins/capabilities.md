@@ -54,3 +54,17 @@ if live is None:
 frame = live.get_latest()
 ```
 
+## Core capability: media index
+
+Core provides `CAP_MEDIA_INDEX` which returns a `MediaIndexClient` with non-blocking query methods:
+
+```python
+from datalens.api.plugins import CAP_MEDIA_INDEX
+
+index = ctx.app.capabilities.get(CAP_MEDIA_INDEX)
+if index is None:
+    return
+
+future = index.list_latest(limit=25)
+future.add_done_callback(lambda f: print(f.result()))
+```

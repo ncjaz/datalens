@@ -24,6 +24,12 @@ from datalens.api.plugins import (
 )
 ```
 
+For UI bindings that pair a shortcut command with a button/menu/checkbox/toggle, use:
+
+```python
+from datalens.api.ui_commands import ShortcutButtonBinding, ShortcutButtonCommand
+```
+
 Avoid:
 
 ```python
@@ -50,3 +56,10 @@ Do not block the UI thread waiting on:
 If you have a `Future`, attach a callback or use a loader stage to run the
 work off-thread.
 
+## Plugin preferences
+
+Plugins can store persisted, user-editable preferences under `settings.json` and
+expose them in the Preferences UI via the plugin manifest (no runtime import).
+
+- Runtime access: `ctx.app.preferences`
+- Docs: `plugins/preferences.md`

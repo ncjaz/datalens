@@ -12,7 +12,9 @@ from datalens.domain.ui.theme import (
     ThemeOpacitySettings,
     ThemeSettings,
 )
+from datalens.ui.theme.global_qss import build_global_qss
 from datalens.ui.theme.color_utils import contrast_text_color, darken_color, lighten_color
+from datalens.ui.theme.popup_rounding import install_popup_rounding
 
 
 class AppTheme(QObject):
@@ -67,6 +69,22 @@ class AppTheme(QObject):
     @property
     def background_color(self) -> str:
         return self._settings.background_color
+
+    @property
+    def background_secondary_color(self) -> str:
+        """
+        Secondary background surface colour for UI chrome (menu/status bars).
+
+        If unset in ThemeSettings, this is derived from `background_color` to keep
+        the palette coherent.
+        """
+        raw = getattr(self._settings, "background_secondary_color", None)
+        if isinstance(raw, str) and raw.strip():
+            return raw.strip()
+
+        background = QColor(self.background_color)
+        # Slightly lighter than the main window background (V1-style separation).
+        return lighten_color(background, 1.06).name().upper()
 
     @property
     def secondary_color(self) -> str:
@@ -233,16 +251,9 @@ class AppTheme(QObject):
 
         app.setPalette(palette)
 
-        # Keep tooltips consistent even if widgets use per-control QSS.
-        app.setStyleSheet(
-            "QToolTip {"
-            f"background-color: {self.with_alpha_hex(self.primary_color, 0.85)};"
-            "color: #ffffff;"
-            "border: 1px solid rgba(255, 255, 255, 40);"
-            "padding: 4px 6px;"
-            "border-radius: 4px;"
-            "}"
-        )
+        # Global app-wide QSS (chrome + common inputs).
+        app.setStyleSheet(build_global_qss(theme=self, base=base, alt=alt, button=button))
+        install_popup_rounding(app, radius=10)
 
     # ------------------------------------------------------------------
     # Standard "recipes" (consistent defaults across the UI)

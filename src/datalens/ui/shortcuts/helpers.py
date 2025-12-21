@@ -8,6 +8,7 @@ These helpers exist to reduce boilerplate for common integration points:
 - Tagging a popout window with a plugin id so workspace-scoped shortcuts route
   correctly when multiple top-level windows exist.
 - Subscribing to shortcut changes to refresh tooltips or UI labels.
+- Wiring `DatalensButton` instances to already-registered `ShortcutButtonBinding` objects.
 
 The shortcuts *source of truth* remains `ShortcutsService` in the app context.
 """
@@ -20,7 +21,11 @@ from PySide6.QtCore import QEvent, QObject, QTimer
 from PySide6.QtWidgets import QWidget
 
 from datalens.core.context import get_app_context
+from datalens.core.logging import get_logger
 from datalens.domain.plugin import PluginId
+
+
+log = get_logger(__name__)
 
 
 def enable_mouse_wheel_chords(widget: QWidget) -> None:
@@ -128,7 +133,78 @@ def attach_shortcut_integration(
     return cleanup
 
 
+def wire_button_to_binding(
+    button,
+    *,
+    binding,
+    plugin_id: PluginId,
+) -> None:
+    """
+    Wire a `DatalensButton` to an already-registered `ShortcutButtonBinding`.
+
+    This is a UI-layer convenience helper that connects the button's `clicked`
+    signal to the binding's callback and attaches the effective shortcut tooltip.
+
+    **Important**: The shortcut must already be registered via
+    `register_shortcuts()` before calling this. This helper assumes registration
+    happened in the plugin's `register_shortcuts(ctx)` hook.
+
+    Args:
+        button: A `DatalensButton` instance (created by caller).
+        binding: A `ShortcutButtonBinding` that was registered during
+            `register_shortcuts()` (typically stored on the plugin instance).
+        plugin_id: The plugin id that owns the shortcut command.
+
+    Example:
+        In plugin `__init__()`:
+            self._save_binding = ShortcutButtonBinding(...)
+
+        In `register_shortcuts()`:
+            register_shortcut_page_for_buttons(ctx, bindings=[self._save_binding])
+
+        In workspace UI:
+            btn = DatalensButton("Save", ctx.app.theme, ButtonVariant.PRIMARY)
+            wire_button_to_binding(btn, binding=plugin.save_binding, plugin_id=plugin.plugin_id)
+
+    This reduces the workspace UI code to 2 lines instead of 3-4 lines of manual wiring.
+    """
+
+    from datalens.api.ui_commands import ShortcutButtonBinding
+
+    if not isinstance(binding, ShortcutButtonBinding):
+        log.warning(
+            "wire_button_to_binding expects a ShortcutButtonBinding, got %s",
+            type(binding).__name__,
+            extra={"operation": "shortcuts", "phase": "wire_button"},
+        )
+        return
+
+    try:
+        button.clicked.connect(lambda *_: binding.callback())
+    except Exception:
+        log.warning(
+            "Failed to connect button click to binding callback",
+            exc_info=True,
+            extra={"operation": "shortcuts", "phase": "wire_button"},
+        )
+
+    try:
+        button.attach_shortcut_tooltip(
+            plugin_id=plugin_id,
+            command_id=str(binding.command.command_id),
+            title=binding.command.title,
+            description=binding.command.description,
+        )
+    except Exception:
+        log.debug(
+            "Failed to attach shortcut tooltip to button (best-effort)",
+            exc_info=True,
+            extra={"operation": "shortcuts", "phase": "wire_button"},
+        )
+
+
 __all__ = [
     "attach_shortcut_integration",
     "enable_mouse_wheel_chords",
+    "wire_button_to_binding",
 ]

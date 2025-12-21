@@ -32,11 +32,13 @@ Avoid inventing multiple strings for the same concept — prefer reusing or exte
 
 ### Canonical IDs (stable-ish)
 
-These constants live in `datalens.api.plugins` (also re-exported from `datalens.api.sharing`):
+These constants live in `datalens.api.sharing` and are re-exported from `datalens.api.plugins`:
 
 - Implemented:
   - `CAP_WORKSPACE_STATE_SNAPSHOT` = `datalens.workspace_state.snapshot`
   - `CAP_PROJECT_STATUS` = `datalens.project.status`
+  - `CAP_MEDIA_INDEX` = `datalens.media.index`
+  - `CMD_MEDIA_REGISTER` = `datalens.media.register`
 - Reserved/planned:
   - `CAP_MEDIA_CURRENT` = `datalens.media.current`
   - `CAP_ANNOTATIONS_CURRENT` = `datalens.annotations.current`
@@ -107,6 +109,30 @@ future = ctx.app.commands.dispatch("my_plugin.echo", {"hello": "world"})
 future.add_done_callback(lambda f: print(f.result()))
 ```
 
+### Core command: register media files
+
+Core provides a single "register" entrypoint for the project media index (`media_files`):
+
+```python
+from datalens.api.plugins import CMD_MEDIA_REGISTER
+
+ctx.app.commands.dispatch(
+    CMD_MEDIA_REGISTER,
+    {
+        "relative_path": "captures/rgb_0001.png",
+        "source_kind": "capture",
+    },
+    caller_plugin_id=self.plugin_id,
+)
+```
+
+Payload fields:
+
+- `relative_path` (required): project-relative path (portable; stored as posix).
+- `source_kind` (optional): `capture|watcher|import|manual|other`.
+- `created_at_s` (optional): float timestamp (best-effort filesystem timestamp).
+- `mime` (optional): MIME type string.
+
 ## Events: publish + subscribe
 
 Events are for “something changed”, not “here’s a big payload”.
@@ -128,6 +154,21 @@ Publish (any thread is allowed; delivery is queued to the UI thread):
 ctx.app.events.publish("MyEventName", {"id": 123})
 ```
 
+## Core media index: query capability
+
+Core also exposes a small query capability for the media index:
+
+```python
+from datalens.api.plugins import CAP_MEDIA_INDEX
+
+index = ctx.app.capabilities.get(CAP_MEDIA_INDEX)
+if index is None:
+    return
+
+future = index.list_latest(limit=25)
+future.add_done_callback(lambda f: print(f.result()))
+```
+
 ## Don’t touch Qt off-thread
 
 Capabilities/commands/events are designed to keep the UI responsive. The hard rule still applies:
@@ -135,4 +176,3 @@ Capabilities/commands/events are designed to keep the UI responsive. The hard ru
 **Never touch Qt widgets from a background thread.**
 
 See {doc}`stability` for the canonical snippet.
-

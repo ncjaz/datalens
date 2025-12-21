@@ -40,6 +40,20 @@ future = ctx.app.commands.dispatch("capture.start_stream", {"fps": 1})
 future.add_done_callback(lambda f: print(f.result()))
 ```
 
+## Core command: register media files
+
+Core provides `CMD_MEDIA_REGISTER` to register a project-relative file into the core media index (`media_files`).
+
+```python
+from datalens.api.plugins import CMD_MEDIA_REGISTER
+
+ctx.app.commands.dispatch(
+    CMD_MEDIA_REGISTER,
+    {"relative_path": "captures/rgb_0001.png", "source_kind": "capture"},
+    caller_plugin_id=self.plugin_id,
+)
+```
+
 ## Example: Eval requests Capture
 
 ```{mermaid}
@@ -52,4 +66,3 @@ sequenceDiagram
     Bus->>Capture: StartLiveStream(settings)
     Capture-->>Bus: Accepted/Rejected (+reason)
 ```
-

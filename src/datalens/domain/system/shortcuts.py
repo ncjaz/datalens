@@ -133,6 +133,13 @@ class ShortcutOverrides:
     gesture_bindings: Mapping[str, Mapping[str, str | None]] = field(default_factory=dict)
     consume_event_overrides: Mapping[str, Mapping[str, bool]] = field(default_factory=dict)
     mode_toggle_overrides: Mapping[str, Mapping[str, bool]] = field(default_factory=dict)
+    # Global defaults used by "modifier-click" style gesture bindings. These are
+    # stored here (not QSettings) so plugins can rely on a single semantic source
+    # of truth and so the Preferences -> Keyboard Shortcuts page can edit them.
+    #
+    # Keys are "primary" and "secondary"; values are one of:
+    # "Shift", "Ctrl", "Alt", "Meta".
+    modifier_defaults: Mapping[str, str] = field(default_factory=dict)
 
     def for_plugin(self, plugin_id: PluginId) -> Mapping[str, str | None]:
         return self.bindings.get(str(plugin_id), {})

@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import NewType, Optional
 
+from datalens.domain.plugin.preferences_schema import PluginPreferencesSchema
 
 PluginId = NewType("PluginId", str)
 PluginGroupId = NewType("PluginGroupId", str)
@@ -97,6 +98,9 @@ class PluginDefinition:
     manual_pip_requirements: tuple[str, ...] = ()
     enabled_by_default: bool = True
     builtin: bool = False  # True for plugins bundled with the app
+    # Optional preferences schema (manifest-driven). Used by Preferences UI to
+    # build pages without importing plugin runtime code.
+    preferences: PluginPreferencesSchema | None = None
 
 
 __all__ = [
@@ -106,6 +110,7 @@ __all__ = [
     "PluginFeature",
     "PluginKind",
     "PluginStage",
+    "PluginPreferencesSchema",
 ]
 
 # Optional: plugin metadata stored in the core-owned `plugin_meta` table.

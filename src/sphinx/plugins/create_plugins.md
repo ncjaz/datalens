@@ -43,8 +43,9 @@ A plugin root typically contains:
 - `requirements.txt` (optional): pip install specifiers for this plugin
 - `manual_requirements.md` (optional): deps users must install themselves (e.g. PyTorch)
 
-Note: V2 does not auto-install plugin requirements yet; `requirements.txt` is
-currently used for display/diagnostics only.
+Note: V2 does not auto-install plugin requirements on discovery/enable.
+However, the **Manage Plugins** dialog can (optionally) install missing
+`requirements.txt` entries into the current environment (experimental; restart required).
 
 ## Runtime contracts (what the app provides)
 

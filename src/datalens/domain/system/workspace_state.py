@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from datalens.domain.system.system_info import SystemInfoSnapshot
+
 
 @dataclass(frozen=True)
 class WorkspaceStateSnapshot:
@@ -16,6 +18,7 @@ class WorkspaceStateSnapshot:
     project_root: Path | None = None
     active_workspace_id: str | None = None
     active_item_id: str | None = None
+    system_info: SystemInfoSnapshot | None = None
 
 
 __all__ = ["WorkspaceStateSnapshot"]

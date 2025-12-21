@@ -14,6 +14,7 @@ from datalens.domain.plugin import (
     PluginKind,
     PluginStage,
 )
+from datalens.domain.plugin.preferences_schema import PluginPreferencesSchema
 from datalens.infra.paths import user_plugins_dir
 from datalens.services.plugins.registry import PluginLocation, PluginOrigin, PluginRecord, PluginRegistry, PluginRequirements
 
@@ -168,6 +169,22 @@ def _plugin_definition_from_manifest_json(*, plugin_dir: Path, builtin: bool) ->
         raise TypeError("manifest.features must be a list")
     features = tuple(_parse_feature(entry) for entry in features_raw)
 
+    preferences: PluginPreferencesSchema | None = None
+    try:
+        raw_prefs = payload.get("preferences")
+        if raw_prefs is not None:
+            preferences = PluginPreferencesSchema.from_dict(raw_prefs)
+    except Exception:
+        # Preferences schema should never break discovery; treat it as
+        # best-effort metadata only.
+        log.warning(
+            "Invalid plugin preferences schema in %s (best-effort; ignoring)",
+            manifest_path,
+            extra={"operation": "discover_plugins", "phase": "preferences_error"},
+            exc_info=True,
+        )
+        preferences = None
+
     return PluginDefinition(
         id=PluginId(plugin_id_raw),
         name=name,
@@ -184,6 +201,7 @@ def _plugin_definition_from_manifest_json(*, plugin_dir: Path, builtin: bool) ->
         manual_pip_requirements=manual_pip_requirements,
         enabled_by_default=enabled_by_default,
         builtin=builtin,
+        preferences=preferences,
     )
 
 

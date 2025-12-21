@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from collections import defaultdict, deque
@@ -122,6 +123,36 @@ class PluginDefinitionsChanged:
     timestamp_s: float = 0.0
 
 
+@dataclass(frozen=True)
+class PluginPreferencesChanged:
+    """
+    Published when a plugin's persisted preferences change.
+
+    Preferences are stored under `settings.json`:
+      settings.plugin_settings[plugin_id][key] = value
+
+    This event is intended for UI refreshes and plugin reactions (subscribe via
+    EventHub queued delivery; callbacks must be fast).
+    """
+
+    plugin_id: PluginId
+    changed_keys: tuple[str, ...]
+    timestamp_s: float
+
+
+@dataclass(frozen=True)
+class StatusMessageRequested:
+    """
+    Request a transient status message to be shown in the main window status bar.
+
+    This is a lightweight UI affordance (not a notification center). Keep
+    messages short and user-relevant.
+    """
+
+    text: str
+    timeout_ms: int = 3000
+
+
 class EventHub:
     """
     App-wide event hub for semantic coordination across UI/services/plugins.
@@ -149,6 +180,10 @@ class EventHub:
     PLUGINS_ENABLED_CHANGED: EventName = "PluginsEnabledChanged"
     FOCUSED_WORKSPACE_CHANGED: EventName = "FocusedWorkspaceChanged"
     PLUGIN_DEFINITIONS_CHANGED: EventName = "PluginDefinitionsChanged"
+    PLUGIN_PREFERENCES_CHANGED: EventName = "PluginPreferencesChanged"
+
+    # UI (V2)
+    STATUS_MESSAGE_REQUESTED: EventName = "StatusMessageRequested"
 
     # Cross-cutting (from docs/events.md, implemented as names only for now)
     MEDIA_LIST_UPDATED: EventName = "MediaListUpdated"
@@ -212,10 +247,23 @@ class EventHub:
         if not isinstance(name, str) or not name:
             raise ValueError("Event name must be a non-empty string")
 
+        debug_enabled = bool(getattr(log, "logger", None) and log.logger.isEnabledFor(logging.DEBUG))
+
         with self._lock:
             sub_id = self._next_id
             self._next_id += 1
             self._subscriptions[name].append((sub_id, callback))
+
+        if debug_enabled:
+            log.debug(
+                "EventHub subscribed",
+                extra={
+                    "operation": "event_hub",
+                    "phase": "subscribe",
+                    "event": name,
+                    "subscriber": getattr(callback, "__qualname__", repr(callback)),
+                },
+            )
 
         def _unsubscribe() -> None:
             with self._lock:
@@ -223,6 +271,17 @@ class EventHub:
                 self._subscriptions[name] = [(i, cb) for (i, cb) in items if i != sub_id]
                 if not self._subscriptions[name]:
                     self._subscriptions.pop(name, None)
+
+            if debug_enabled:
+                log.debug(
+                    "EventHub unsubscribed",
+                    extra={
+                        "operation": "event_hub",
+                        "phase": "unsubscribe",
+                        "event": name,
+                        "subscriber": getattr(callback, "__qualname__", repr(callback)),
+                    },
+                )
 
         return Subscription(unsubscribe=_unsubscribe)
 
@@ -236,6 +295,7 @@ class EventHub:
 
         Safe to call from any thread. Delivery is queued on the UI thread.
         """
+        debug_enabled = bool(getattr(log, "logger", None) and log.logger.isEnabledFor(logging.DEBUG))
         envelope = EventEnvelope(
             name=name,
             payload=payload,
@@ -246,6 +306,24 @@ class EventHub:
             self._queue.append(envelope)
             if self._history.maxlen:
                 self._history.append(envelope)
+            if debug_enabled:
+                subs = len(self._subscriptions.get(name, ())) + len(self._subscriptions.get(self.ANY, ()))
+                queue_len = len(self._queue)
+                ui_attached = self._ui_scheduler is not None
+
+        if debug_enabled:
+            log.debug(
+                "EventHub published",
+                extra={
+                    "operation": "event_hub",
+                    "phase": "publish",
+                    "event": name,
+                    "payload_type": type(payload).__name__,
+                    "subscriber_count": int(subs),
+                    "queue_len": int(queue_len),
+                    "ui_attached": bool(ui_attached),
+                },
+            )
         self._schedule_drain()
 
     def history_snapshot(self) -> list[EventEnvelope]:
@@ -274,6 +352,8 @@ class EventHub:
         with self._lock:
             self._scheduled = False
 
+        debug_enabled = bool(getattr(log, "logger", None) and log.logger.isEnabledFor(logging.DEBUG))
+
         while True:
             with self._lock:
                 if not self._queue:
@@ -282,8 +362,30 @@ class EventHub:
                 callbacks = list(self._subscriptions.get(envelope.name, ()))
                 callbacks_all = list(self._subscriptions.get(self.ANY, ()))
 
-            for _, cb in callbacks_all + callbacks:
+            merged = callbacks_all + callbacks
+            if debug_enabled:
+                log.debug(
+                    "EventHub delivering",
+                    extra={
+                        "operation": "event_hub",
+                        "phase": "deliver",
+                        "event": envelope.name,
+                        "subscriber_count": int(len(merged)),
+                    },
+                )
+
+            for _, cb in merged:
                 try:
+                    if debug_enabled:
+                        log.debug(
+                            "EventHub delivering to subscriber",
+                            extra={
+                                "operation": "event_hub",
+                                "phase": "deliver_subscriber",
+                                "event": envelope.name,
+                                "subscriber": getattr(cb, "__qualname__", repr(cb)),
+                            },
+                        )
                     cb(envelope.payload)
                 except Exception:
                     log.exception(
