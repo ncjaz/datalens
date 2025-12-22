@@ -7,7 +7,7 @@ from datalens.core.events import EventHub, StatusMessageRequested
 from datalens.core.logging import get_logger
 from datalens.ui.theme.app_theme import AppTheme
 
-from . import auto_refresh_controls, depth_controls, device_controls, realsense_controls, save_controls, webcam_controls
+from . import auto_refresh_controls, depth_controls, device_controls, device_preferences, realsense_controls, save_controls, webcam_controls
 from .workspace_constants import _CAPTURE_PLUGIN_ID, _DEFAULT_SCAN_MODE, _SETTING_SCAN_MODE
 from .workspace_ui import CaptureWorkspaceUi
 
@@ -156,6 +156,31 @@ class CaptureWorkspaceWidget(CaptureWorkspaceUi):
                 exc_info=True,
                 extra={"operation": "capture", "phase": "prefs_set_error", "key": str(key)},
             )
+
+    # Device-specific preference helpers
+    def _save_device_preference(self, device_id: str, setting: str, value: object) -> None:
+        return device_preferences.save_device_preference(self, device_id, setting, value)
+
+    def _load_device_preference(self, device_id: str, setting: str, default: object = None) -> object:
+        return device_preferences.load_device_preference(self, device_id, setting, default)
+
+    def _save_colormap_preference(self, device_id: str, colormap: str) -> None:
+        return device_preferences.save_colormap_preference(self, device_id, colormap)
+
+    def _load_colormap_preference(self, device_id: str) -> str:
+        return device_preferences.load_colormap_preference(self, device_id)
+
+    def _save_depth_alignment_preference(self, device_id: str, alignment: str) -> None:
+        return device_preferences.save_depth_alignment_preference(self, device_id, alignment)
+
+    def _load_depth_alignment_preference(self, device_id: str) -> str:
+        return device_preferences.load_depth_alignment_preference(self, device_id)
+
+    def _save_realsense_profile_preference(self, device_id: str, format_str: str, width: int, height: int, fps: int) -> None:
+        return device_preferences.save_realsense_profile_preference(self, device_id, format_str, width, height, fps)
+
+    def _load_realsense_profile_preference(self, device_id: str) -> tuple:
+        return device_preferences.load_realsense_profile_preference(self, device_id)
 
     def _dispose(self) -> None:
         if self._disposed:

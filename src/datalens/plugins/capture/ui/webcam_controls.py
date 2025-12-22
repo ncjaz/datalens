@@ -31,15 +31,12 @@ def show_webcam_settings(self, *, device: CameraDevice) -> None:
     ):
         w.setVisible(False)
 
-    try:
-        self._settings_group.setTitle("Camera Settings")
-    except Exception:
-        pass
-
     # Depth stream controls are not relevant for webcams.
     try:
         self._stream_mode_toggle.set_option_enabled("depth", False)
-        if getattr(self, "_stream_mode", "rgb") == "depth":
+        self._stream_mode_toggle.set_option_enabled("overlay", False)
+        current_mode = getattr(self, "_stream_mode", "rgb")
+        if current_mode in ("depth", "overlay"):
             self._stream_mode_toggle.set_current_id("rgb", emit=False)
             self._set_stream_mode("rgb")
     except Exception:

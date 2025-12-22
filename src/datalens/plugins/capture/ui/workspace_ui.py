@@ -152,15 +152,15 @@ def build(self, *, theme: AppTheme) -> None:
     self._rs_depth_align_label = QLabel("Depth Alignment", device_group)
     self._rs_depth_align_toggle = Toggle(
         theme,
-        ToggleOption("standard", "Standard"),
         ToggleOption("aligned", "Aligned to RGB"),
+        ToggleOption("standard", "Standard"),
         exclusive=True,
         parent=device_group,
     )
     self._rs_depth_align_toggle.set_size("small")
     self._rs_depth_align_toggle.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
     self._rs_depth_align_toggle.apply_theme(theme)
-    self._rs_depth_align_toggle.set_current_id("standard", emit=False)
+    self._rs_depth_align_toggle.set_current_id("aligned", emit=False)
     device_layout.addRow(self._rs_depth_align_label, self._rs_depth_align_toggle)
 
     for w in (
@@ -238,6 +238,7 @@ def build(self, *, theme: AppTheme) -> None:
     self._stream_mode_toggle = Toggle(
         theme,
         ToggleOption("rgb", "RGB"),
+        ToggleOption("overlay", "Overlay"),
         ToggleOption("depth", "Depth"),
         exclusive=True,
         parent=stream_row,
@@ -269,25 +270,24 @@ def build(self, *, theme: AppTheme) -> None:
     auto_size_layout(capture_layout, capture_group, scale=1.15)
     controls_layout.addWidget(capture_group)
 
-    self._settings_group = QGroupBox("RGB Settings", controls)
-    self._settings_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
-    settings_group_layout = QVBoxLayout(self._settings_group)
-    settings_group_layout.setContentsMargins(12, 12, 12, 12)
-    settings_group_layout.setSpacing(10)
+    # Container for all settings (title will change based on mode)
+    self._settings_container = QWidget(controls)
+    settings_container_layout = QVBoxLayout(self._settings_container)
+    settings_container_layout.setContentsMargins(0, 0, 0, 0)
+    settings_container_layout.setSpacing(8)
 
-    self._rgb_options_scroll = QScrollArea(self._settings_group)
-    self._rgb_options_scroll.setWidgetResizable(True)
-    self._rgb_options_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-    self._rgb_options_scroll.setFrameShape(QFrame.NoFrame)
+    # Depth Settings Group (collapsible, secondary color background)
+    self._depth_settings_group = QGroupBox("Depth Settings", self._settings_container)
+    self._depth_settings_group.setCheckable(True)
+    self._depth_settings_group.setChecked(True)
+    # Apply secondary color background with low opacity for visual distinction
+    depth_bg = theme.with_alpha_hex(theme.settings.background_secondary_color, 0.2)
+    self._depth_settings_group.setStyleSheet(f"QGroupBox {{ background-color: {depth_bg}; }}")
+    depth_settings_layout = QVBoxLayout(self._depth_settings_group)
+    depth_settings_layout.setContentsMargins(12, 12, 12, 12)
+    depth_settings_layout.setSpacing(8)
 
-    self._rgb_options_widget = QWidget(self._rgb_options_scroll)
-    self._rgb_options_layout = QFormLayout(self._rgb_options_widget)
-    self._rgb_options_layout.setContentsMargins(0, 0, 0, 0)
-    self._rgb_options_layout.setHorizontalSpacing(12)
-    self._rgb_options_layout.setVerticalSpacing(8)
-    self._rgb_options_scroll.setWidget(self._rgb_options_widget)
-
-    self._depth_options_scroll = QScrollArea(self._settings_group)
+    self._depth_options_scroll = QScrollArea(self._depth_settings_group)
     self._depth_options_scroll.setWidgetResizable(True)
     self._depth_options_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
     self._depth_options_scroll.setFrameShape(QFrame.NoFrame)
@@ -298,13 +298,39 @@ def build(self, *, theme: AppTheme) -> None:
     self._depth_options_layout.setHorizontalSpacing(12)
     self._depth_options_layout.setVerticalSpacing(8)
     self._depth_options_scroll.setWidget(self._depth_options_widget)
+    depth_settings_layout.addWidget(self._depth_options_scroll, 1)
 
-    settings_group_layout.addWidget(self._rgb_options_scroll, 1)
-    settings_group_layout.addWidget(self._depth_options_scroll, 1)
-    self._depth_options_scroll.setVisible(False)
+    settings_container_layout.addWidget(self._depth_settings_group, 1)
+    self._depth_settings_group.setVisible(False)
+
+    # RGB Settings Group (collapsible, tertiary color background)
+    self._rgb_settings_group = QGroupBox("RGB Settings", self._settings_container)
+    self._rgb_settings_group.setCheckable(True)
+    self._rgb_settings_group.setChecked(True)
+    # Apply tertiary color background with low opacity for visual distinction
+    rgb_bg = theme.with_alpha_hex(theme.settings.background_tertiary_color, 0.2)
+    self._rgb_settings_group.setStyleSheet(f"QGroupBox {{ background-color: {rgb_bg}; }}")
+    rgb_settings_layout = QVBoxLayout(self._rgb_settings_group)
+    rgb_settings_layout.setContentsMargins(12, 12, 12, 12)
+    rgb_settings_layout.setSpacing(8)
+
+    self._rgb_options_scroll = QScrollArea(self._rgb_settings_group)
+    self._rgb_options_scroll.setWidgetResizable(True)
+    self._rgb_options_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    self._rgb_options_scroll.setFrameShape(QFrame.NoFrame)
+
+    self._rgb_options_widget = QWidget(self._rgb_options_scroll)
+    self._rgb_options_layout = QFormLayout(self._rgb_options_widget)
+    self._rgb_options_layout.setContentsMargins(0, 0, 0, 0)
+    self._rgb_options_layout.setHorizontalSpacing(12)
+    self._rgb_options_layout.setVerticalSpacing(8)
+    self._rgb_options_scroll.setWidget(self._rgb_options_widget)
+    rgb_settings_layout.addWidget(self._rgb_options_scroll, 1)
+
+    settings_container_layout.addWidget(self._rgb_settings_group, 1)
 
     self._rs_option_widgets = {}
-    controls_layout.addWidget(self._settings_group, 1)
+    controls_layout.addWidget(self._settings_container, 1)
 
     computed_width = auto_size_layout(controls_layout, controls, scale=1.15)
     controls_scroll.setMinimumWidth(computed_width + 20)

@@ -169,3 +169,143 @@ Required logging policy:
   and rate-limit (e.g. “log every Nth move”).
 
 Always log exceptions with traceback when caught best-effort.
+# Raster + vector overlay model (updated)
+
+We want a single **Canvas system** that can render and interact with:
+
+- **Raster overlays** (pixel grids): masks, heatmaps, depth colormaps, brush strokes, model outputs.
+- **Vector overlays** (geometry): boxes, polygons, vertices/handles, guidelines, labels.
+
+This avoids creating “two canvases” (one for masks, one for geometry). A plugin can mix both: e.g. paint a mask (raster) while also editing polygon vertices (vector) on top.
+
+## Layer stack (draw order)
+
+Render is always “bottom → top”. Higher layers draw on top and typically receive interaction first.
+
+```
+ TOP (drawn last)
+ ┌────────────────────────────────────────────────────────────┐
+ │ HUD / UI overlays (non-canvas UI)                          │
+ │  - tool hints, crosshair, selection banner, help text       │
+ ├────────────────────────────────────────────────────────────┤
+ │ Vector overlays (interactive)                               │
+ │  - vertices/handles                                         │
+ │  - polygons/boxes/paths                                     │
+ │  - labels, guides, snapping indicators                      │
+ ├────────────────────────────────────────────────────────────┤
+ │ Raster overlays (pixel)                                     │
+ │  - paint strokes (editable)                                 │
+ │  - masks (editable or model-provided)                       │
+ │  - heatmaps, depth colormap, edges (usually read-only)      │
+ ├────────────────────────────────────────────────────────────┤
+ │ Base image (RGB)                                            │
+ │  - current frame / currently selected media                 │
+ └────────────────────────────────────────────────────────────┘
+ BOTTOM (drawn first)
+```
+
+Notes:
+- We treat “HUD” as optional; it’s just another overlay layer type that draws last.
+- Raster overlays can also have an “opacity/compose mode” (normal/alpha/multiply) so masks don’t obliterate the base image.
+
+## One system manages both layer types
+
+The Canvas owns:
+
+- **Viewport transform** (pan/zoom): converts between widget pixels and image coordinates.
+- **LayerManager**: ordered list of layers; draw + hit-test routing.
+- **ToolManager**: active tool selection, event routing, capture rules.
+
+Layers are pure render/hit-test objects; tools implement “behavior”.
+
+## Tools, layers, and interaction routing
+
+Tools should be self-contained and plugin-owned (e.g. `capture/tools/*`), but the Canvas provides a stable contract:
+
+### Key ideas
+
+1. **Only one active tool receives pointer events first**.
+2. The active tool may:
+   - **consume** the event (e.g. painting stroke started),
+   - or **defer** to the Canvas selection/router (e.g. no hit, allow vertex selection).
+3. The Canvas selection/router can then hit-test vector/raster layers depending on intent.
+
+### Hit-test priority (typical)
+
+When a pointer event arrives (mouse press/move/release), Canvas does:
+
+1) If there is an **active tool**:
+- call `tool.on_pointer_event(...)`
+- if it returns `consumed=True`, stop (tool “captures” the gesture)
+
+2) Otherwise (or tool returned `consumed=False`), use default hit-test:
+
+- **Vector handles first** (vertices/resize handles) because they’re small and precise
+- then **vector shapes** (polygon interior/edges, box interior/edges)
+- then **raster hit-test** (only if there is an interactive raster layer, e.g. paint mask)
+- else let event bubble (scroll area, parent widgets, etc.)
+
+This ensures: clicking a vertex doesn’t accidentally “paint”, but painting tool can still intentionally capture the pointer when active.
+
+### How painting and vertex editing coexist
+
+Painting tool workflow:
+- When painting tool is active and user presses LMB:
+  - tool checks if the press is intended for painting (e.g. within image bounds)
+  - it **captures** pointer events until release
+  - it writes into a raster layer (e.g. `PaintMaskLayer`) and requests redraw
+
+Vertex editing workflow:
+- When selection/edit tool is active (or no tool):
+  - Canvas hit-tests vertex handles
+  - dragging a handle captures pointer events until release
+  - geometry layer updates polygon vertices and requests redraw
+
+If you want “modifier behavior” (e.g. hold Shift to temporarily paint while in selection tool):
+- The selection tool can delegate based on modifiers:
+  - If `Shift` pressed → temporarily route to paint tool for that gesture only
+  - Otherwise → do normal selection/vertex editing
+
+This keeps “painting vs vertex drag” under a unified event router without global hacks.
+
+## Suggested minimal interfaces (v0)
+
+We keep these tiny so they’re easy to implement and don’t bloat the core:
+
+### Layers
+
+- `Layer.draw(painter, view)` (required)
+- `Layer.hit_test(point_image_xy, view) -> Hit | None` (optional; only for interactive layers)
+
+Where `Hit` includes:
+- `layer_id`, `kind` (`"vertex"|"edge"|"shape"|"pixel"`), `payload` (shape id, vertex index, etc.)
+
+### Tools
+
+- `Tool.on_activate(canvas)` / `Tool.on_deactivate(canvas)` (optional)
+- `Tool.on_pointer_event(event, view) -> ToolResult(consumed: bool, cursor: Optional[Cursor])`
+
+Tools can create/manage layers:
+- `canvas.layers.add(layer, z=...)`
+- `canvas.layers.remove(layer_id)`
+- `canvas.layers.set_visible(layer_id, bool)`
+- `canvas.layers.set_opacity(layer_id, float)`
+
+## Event flow (simplified)
+
+```
+QWidget mousePress/Move/Release
+  -> CanvasWidget.handle_pointer_event(e)
+      -> ToolManager.active_tool?.on_pointer_event(...)
+          -> if consumed: repaint; return
+      -> LayerManager.hit_test(...)
+          -> produce Hit (vertex/shape/pixel)
+      -> SelectionRouter.handle_hit(hit, e)
+          -> may start drag/capture
+```
+
+## Why this is performant and non-blocking
+
+- Drawing is fast: only paints cached `QImage/QPixmap` for base + raster overlays and a few vectors.
+- Heavy work (model inference, mask generation, depth colorization) must happen off-thread; the tool/layer just swaps in the latest ready-to-draw frame on the UI thread.
+- Debounced UI updates: tools should coalesce rapid updates (e.g. brush move) into a steady redraw cadence.

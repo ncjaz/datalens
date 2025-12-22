@@ -230,15 +230,11 @@ def on_device_selected(self) -> None:
             self._rs_depth_toggle.blockSignals(False)
 
         self._rebuild_rgb_settings_placeholder()
-        if getattr(self, "_stream_mode", "rgb") == "depth":
+        current_mode = getattr(self, "_stream_mode", "rgb")
+        if current_mode in ("depth", "overlay"):
             self._stream_mode_toggle.set_current_id("rgb", emit=False)
             self._set_stream_mode("rgb")
         return
-
-    try:
-        self._settings_group.setTitle("RGB Settings")
-    except Exception:
-        pass
 
     self._rebuild_rgb_settings_placeholder()
     self._refresh_realsense_metadata_async(serial=serial)
@@ -334,7 +330,9 @@ def refresh_controls(self) -> None:
         depth_stream_enabled = bool(supports_depth)
         try:
             self._stream_mode_toggle.set_option_enabled("depth", bool(depth_stream_enabled))
-            if not depth_stream_enabled and getattr(self, "_stream_mode", "rgb") == "depth":
+            self._stream_mode_toggle.set_option_enabled("overlay", bool(depth_stream_enabled))
+            current_mode = getattr(self, "_stream_mode", "rgb")
+            if not depth_stream_enabled and current_mode in ("depth", "overlay"):
                 self._stream_mode_toggle.set_current_id("rgb", emit=False)
                 self._set_stream_mode("rgb")
         except Exception:
@@ -379,6 +377,49 @@ def refresh_border(self) -> None:
     )
 
 
+def blend_rgb_depth_overlay(rgb_frame, depth_colorized):
+    """
+    Blend RGB and colorized depth frames with alpha compositing.
+
+    IMPORTANT: When using RealSense "Aligned to RGB" mode, depth and RGB frames
+    should already be the same resolution. This function will NOT resize aligned
+    frames - mismatched sizes indicate a configuration issue.
+
+    Args:
+        rgb_frame: HxWx3 uint8 RGB array (original camera frame)
+        depth_colorized: HxWx3 uint8 RGB array (colorized depth)
+
+    Returns:
+        HxWx3 uint8 RGB array (blended overlay)
+    """
+    import numpy as np
+
+    # Verify both frames are same size (required for correct overlay)
+    if rgb_frame.shape != depth_colorized.shape:
+        # This should NOT happen when using RealSense aligned mode
+        log.warning(
+            "RGB and depth frame size mismatch in overlay mode",
+            extra={
+                "operation": "capture",
+                "phase": "overlay_blend_size_mismatch",
+                "rgb_shape": rgb_frame.shape,
+                "depth_shape": depth_colorized.shape,
+            },
+        )
+        # Fallback: return RGB only (do NOT resize, as it would create incorrect overlay)
+        return rgb_frame
+
+    # Alpha blend: overlay = rgb * (1 - alpha) + depth * alpha
+    # Use 50% opacity for depth overlay (adjustable in future)
+    alpha = 0.5
+
+    rgb_f = rgb_frame.astype(np.float32)
+    depth_f = depth_colorized.astype(np.float32)
+
+    blended = rgb_f * (1.0 - alpha) + depth_f * alpha
+    return blended.astype(np.uint8)
+
+
 def refresh_preview(self) -> None:
     if not self._view_active:
         return
@@ -387,7 +428,9 @@ def refresh_preview(self) -> None:
         return
 
     mode = getattr(self, "_stream_mode", "rgb")
-    if mode != "depth":
+
+    # RGB mode: show color frame only
+    if mode == "rgb":
         try:
             rgb = frame.rgb
             h, w = int(rgb.shape[0]), int(rgb.shape[1])
@@ -399,6 +442,7 @@ def refresh_preview(self) -> None:
             log.debug("Failed to update preview (best-effort)", exc_info=True)
         return
 
+    # Depth and Overlay modes require depth data
     try:
         depth = getattr(frame, "depth", None)
         if depth is None:
@@ -413,17 +457,38 @@ def refresh_preview(self) -> None:
             self._preview_label.setText("Depth frame unsupported")
             return
 
-        rgb = self._render_depth_to_rgb(d)
-        h, w = int(rgb.shape[0]), int(rgb.shape[1])
-        bytes_per_line = int(rgb.strides[0])
-        qimg = QImage(rgb.data, w, h, bytes_per_line, QImage.Format.Format_RGB888).copy()
-        pix = QPixmap.fromImage(qimg)
-        self._preview_label.setPixmap(pix.scaled(self._preview_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        # Render depth with selected colormap
+        depth_rgb = self._render_depth_to_rgb(d)
+
+        # Depth mode: show colorized depth only
+        if mode == "depth":
+            h, w = int(depth_rgb.shape[0]), int(depth_rgb.shape[1])
+            bytes_per_line = int(depth_rgb.strides[0])
+            qimg = QImage(depth_rgb.data, w, h, bytes_per_line, QImage.Format.Format_RGB888).copy()
+            pix = QPixmap.fromImage(qimg)
+            self._preview_label.setPixmap(pix.scaled(self._preview_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            return
+
+        # Overlay mode: blend RGB and colorized depth
+        if mode == "overlay":
+            try:
+                rgb = frame.rgb
+                overlay = blend_rgb_depth_overlay(rgb, depth_rgb)
+                h, w = int(overlay.shape[0]), int(overlay.shape[1])
+                bytes_per_line = int(overlay.strides[0])
+                qimg = QImage(overlay.data, w, h, bytes_per_line, QImage.Format.Format_RGB888).copy()
+                pix = QPixmap.fromImage(qimg)
+                self._preview_label.setPixmap(pix.scaled(self._preview_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            except Exception:
+                log.debug("Failed to update overlay preview (best-effort)", exc_info=True)
+            return
+
     except Exception:
-        log.debug("Failed to update depth preview (best-effort)", exc_info=True)
+        log.debug("Failed to update depth/overlay preview (best-effort)", exc_info=True)
 
 
 __all__ = [
+    "blend_rgb_depth_overlay",
     "on_device_selected",
     "on_start_stop_clicked",
     "populate_devices_async",

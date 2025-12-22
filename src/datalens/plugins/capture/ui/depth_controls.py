@@ -40,7 +40,7 @@ def on_depth_stream_toggled(self) -> None:
 
 def set_stream_mode(self, mode: str) -> None:
     mode_s = str(mode or "").strip().lower()
-    if mode_s not in {"rgb", "depth"}:
+    if mode_s not in {"rgb", "depth", "overlay"}:
         mode_s = "rgb"
 
     allow_depth = False
@@ -53,15 +53,26 @@ def set_stream_mode(self, mode: str) -> None:
     except Exception:
         allow_depth = False
 
-    if mode_s == "depth" and not allow_depth:
+    # Depth and Overlay modes require depth sensor to be enabled
+    if mode_s in ("depth", "overlay") and not allow_depth:
         mode_s = "rgb"
         self._stream_mode_toggle.set_current_id("rgb", emit=False)
 
     self._stream_mode = mode_s
     try:
-        self._settings_group.setTitle("Depth Settings" if mode_s == "depth" else "RGB Settings")
-        self._rgb_options_scroll.setVisible(mode_s != "depth")
-        self._depth_options_scroll.setVisible(mode_s == "depth")
+        # Update settings panel visibility (depth first, then RGB)
+        if mode_s == "rgb":
+            # RGB mode: show only RGB settings
+            self._depth_settings_group.setVisible(False)
+            self._rgb_settings_group.setVisible(True)
+        elif mode_s == "depth":
+            # Depth mode: show only depth settings
+            self._depth_settings_group.setVisible(True)
+            self._rgb_settings_group.setVisible(False)
+        elif mode_s == "overlay":
+            # Overlay mode: show both (depth first, then RGB)
+            self._depth_settings_group.setVisible(True)
+            self._rgb_settings_group.setVisible(True)
     except Exception:
         log.debug(
             "Failed to update settings panel visibility (best-effort)",
@@ -72,6 +83,25 @@ def set_stream_mode(self, mode: str) -> None:
 
 def build_depth_visualization_controls(self) -> None:
     self._clear_form_layout(self._depth_options_layout)
+
+    from PySide6.QtWidgets import QComboBox
+
+    self._depth_colormap_combo = QComboBox(self._depth_options_widget)
+    self._depth_colormap_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+    self._depth_colormap_combo.addItem("Grayscale", "grayscale")
+    self._depth_colormap_combo.addItem("Jet", "jet")
+    self._depth_colormap_combo.addItem("Viridis", "viridis")
+    self._depth_colormap_combo.addItem("Plasma", "plasma")
+    self._depth_colormap_combo.addItem("Turbo", "turbo")
+    self._depth_colormap_combo.addItem("Inferno", "inferno")
+    self._depth_colormap_combo.setToolTip(
+        "Select color map for depth visualization.\n"
+        "Grayscale: Black (near) to white (far)\n"
+        "Jet: Blue (near) → Cyan → Green → Yellow → Red (far)\n"
+        "Viridis/Plasma/Inferno: Perceptually uniform scientific colormaps\n"
+        "Turbo: Improved rainbow colormap with better contrast"
+    )
+    self._depth_options_layout.addRow("Colormap", self._depth_colormap_combo)
 
     self._depth_auto_scale = DatalensCheckBox("Auto-scale depth range", self._theme, self._depth_options_widget)
     self._depth_auto_scale.setChecked(True)
@@ -167,9 +197,128 @@ def sync_depth_visualization_controls(self) -> None:
         )
 
 
+def apply_colormap(normalized_u8, colormap: str, valid_mask) -> object:
+    """
+    Apply a colormap to normalized uint8 depth values.
+
+    Args:
+        normalized_u8: uint8 HxW array (0-255)
+        colormap: colormap name ("grayscale", "jet", "viridis", etc.)
+        valid_mask: boolean HxW array indicating valid depth pixels
+
+    Returns:
+        uint8 HxWx3 RGB array
+    """
+    import numpy as np
+
+    h, w = int(normalized_u8.shape[0]), int(normalized_u8.shape[1])
+
+    if colormap == "grayscale":
+        # Grayscale: replicate to 3 channels
+        rgb = np.repeat(normalized_u8[:, :, None], 3, axis=2)
+    elif colormap == "jet":
+        # Jet colormap: blue → cyan → green → yellow → red
+        rgb = apply_jet_colormap(normalized_u8)
+    elif colormap == "viridis":
+        rgb = apply_viridis_colormap(normalized_u8)
+    elif colormap == "plasma":
+        rgb = apply_plasma_colormap(normalized_u8)
+    elif colormap == "inferno":
+        rgb = apply_inferno_colormap(normalized_u8)
+    elif colormap == "turbo":
+        rgb = apply_turbo_colormap(normalized_u8)
+    else:
+        # Fallback to grayscale
+        rgb = np.repeat(normalized_u8[:, :, None], 3, axis=2)
+
+    # Set invalid pixels to black
+    rgb[~valid_mask] = 0
+
+    return rgb
+
+
+def apply_jet_colormap(u8) -> object:
+    """Apply Jet colormap: blue → cyan → green → yellow → red"""
+    import numpy as np
+
+    # Normalize to [0, 1]
+    norm = u8.astype(np.float32) / 255.0
+
+    r = np.clip(1.5 - np.abs(2.0 * norm - 1.0) * 4.0, 0, 1)
+    g = np.clip(1.5 - np.abs(2.0 * norm - 0.5) * 4.0, 0, 1)
+    b = np.clip(1.5 - np.abs(2.0 * norm) * 4.0, 0, 1)
+
+    rgb = np.stack([r, g, b], axis=2)
+    return (rgb * 255.0).astype(np.uint8)
+
+
+def apply_viridis_colormap(u8) -> object:
+    """Apply Viridis colormap (perceptually uniform)"""
+    import numpy as np
+
+    # Simplified Viridis approximation
+    norm = u8.astype(np.float32) / 255.0
+
+    # Viridis: purple → blue → green → yellow
+    r = np.clip(np.where(norm < 0.5, 0.28 * norm, 0.14 + 1.72 * (norm - 0.5)), 0, 1)
+    g = np.clip(np.where(norm < 0.5, 1.6 * norm, 0.8 + 0.4 * (norm - 0.5)), 0, 1)
+    b = np.clip(np.where(norm < 0.5, 0.5 + 1.0 * norm, 1.0 - 1.4 * (norm - 0.5)), 0, 1)
+
+    rgb = np.stack([r, g, b], axis=2)
+    return (rgb * 255.0).astype(np.uint8)
+
+
+def apply_plasma_colormap(u8) -> object:
+    """Apply Plasma colormap (perceptually uniform)"""
+    import numpy as np
+
+    # Simplified Plasma approximation
+    norm = u8.astype(np.float32) / 255.0
+
+    # Plasma: dark blue → purple → orange → yellow
+    r = np.clip(np.where(norm < 0.5, 1.6 * norm, 0.8 + 0.4 * (norm - 0.5)), 0, 1)
+    g = np.clip(np.where(norm < 0.5, 0.2 * norm, 0.1 + 1.8 * (norm - 0.5)), 0, 1)
+    b = np.clip(np.where(norm < 0.5, 0.8 + 0.4 * norm, 1.0 - 2.0 * (norm - 0.5)), 0, 1)
+
+    rgb = np.stack([r, g, b], axis=2)
+    return (rgb * 255.0).astype(np.uint8)
+
+
+def apply_inferno_colormap(u8) -> object:
+    """Apply Inferno colormap (perceptually uniform)"""
+    import numpy as np
+
+    # Simplified Inferno approximation
+    norm = u8.astype(np.float32) / 255.0
+
+    # Inferno: black → purple → red → orange → yellow
+    r = np.clip(np.where(norm < 0.5, 2.0 * norm, 1.0), 0, 1)
+    g = np.clip(np.where(norm < 0.5, 0.0, 2.0 * (norm - 0.5)), 0, 1)
+    b = np.clip(np.where(norm < 0.3, norm / 0.3, 1.0 - 2.0 * (norm - 0.3)), 0, 1)
+
+    rgb = np.stack([r, g, b], axis=2)
+    return (rgb * 255.0).astype(np.uint8)
+
+
+def apply_turbo_colormap(u8) -> object:
+    """Apply Turbo colormap (improved rainbow)"""
+    import numpy as np
+
+    # Simplified Turbo approximation (improved Jet)
+    norm = u8.astype(np.float32) / 255.0
+
+    # Turbo: blue → cyan → green → yellow → orange → red
+    r = np.clip(np.where(norm < 0.5, 0.13 + 1.74 * norm, 1.0), 0, 1)
+    g = np.clip(np.where(norm < 0.5, 1.6 * norm, 1.0 - 1.4 * (norm - 0.5)), 0, 1)
+    b = np.clip(np.where(norm < 0.5, 0.9 - 1.8 * norm, 0.0), 0, 1)
+
+    rgb = np.stack([r, g, b], axis=2)
+    return (rgb * 255.0).astype(np.uint8)
+
+
 def render_depth_to_rgb(self, depth_u16) -> object:
     """
-    Convert a depth frame (uint16 mm) into an RGB888 preview image (grayscale).
+    Convert a depth frame (uint16 mm) into an RGB888 preview image with selected colormap.
 
     Best-effort; returns a uint8 HxWx3 array-like object.
     """
@@ -206,10 +355,19 @@ def render_depth_to_rgb(self, depth_u16) -> object:
     norm = np.clip(norm, 0.0, 1.0)
     u8 = (norm * 255.0).astype(np.uint8)
     u8[~valid] = 0
-    return np.repeat(u8[:, :, None], 3, axis=2)
+
+    # Apply colormap
+    colormap = str(self._depth_colormap_combo.currentData() or "grayscale")
+    return apply_colormap(u8, colormap, valid)
 
 
 __all__ = [
+    "apply_colormap",
+    "apply_inferno_colormap",
+    "apply_jet_colormap",
+    "apply_plasma_colormap",
+    "apply_turbo_colormap",
+    "apply_viridis_colormap",
     "build_depth_visualization_controls",
     "on_depth_stream_toggled",
     "render_depth_to_rgb",
