@@ -161,6 +161,7 @@ def build(self, *, theme: AppTheme) -> None:
     self._rs_depth_align_toggle.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
     self._rs_depth_align_toggle.apply_theme(theme)
     self._rs_depth_align_toggle.set_current_id("aligned", emit=False)
+    self._rs_depth_align_toggle.selectionChanged.connect(lambda *_: self._on_depth_alignment_changed())
     device_layout.addRow(self._rs_depth_align_label, self._rs_depth_align_toggle)
 
     for w in (
@@ -276,12 +277,12 @@ def build(self, *, theme: AppTheme) -> None:
     settings_container_layout.setContentsMargins(0, 0, 0, 0)
     settings_container_layout.setSpacing(8)
 
-    # Depth Settings Group (collapsible, secondary color background)
+    # Depth Settings Group (collapsible, secondary accent color background)
     self._depth_settings_group = QGroupBox("Depth Settings", self._settings_container)
     self._depth_settings_group.setCheckable(True)
     self._depth_settings_group.setChecked(True)
-    # Apply secondary color background with low opacity for visual distinction
-    depth_bg = theme.with_alpha_hex(theme.settings.background_secondary_color, 0.2)
+    # Apply secondary accent color background with low opacity for visual distinction
+    depth_bg = theme.with_alpha_hex(theme.secondary_color, 0.2)
     self._depth_settings_group.setStyleSheet(f"QGroupBox {{ background-color: {depth_bg}; }}")
     depth_settings_layout = QVBoxLayout(self._depth_settings_group)
     depth_settings_layout.setContentsMargins(12, 12, 12, 12)
@@ -303,12 +304,12 @@ def build(self, *, theme: AppTheme) -> None:
     settings_container_layout.addWidget(self._depth_settings_group, 1)
     self._depth_settings_group.setVisible(False)
 
-    # RGB Settings Group (collapsible, tertiary color background)
+    # RGB Settings Group (collapsible, tertiary accent color background)
     self._rgb_settings_group = QGroupBox("RGB Settings", self._settings_container)
     self._rgb_settings_group.setCheckable(True)
     self._rgb_settings_group.setChecked(True)
-    # Apply tertiary color background with low opacity for visual distinction
-    rgb_bg = theme.with_alpha_hex(theme.settings.background_tertiary_color, 0.2)
+    # Apply tertiary accent color background with low opacity for visual distinction
+    rgb_bg = theme.with_alpha_hex(theme.tertiary_color, 0.2)
     self._rgb_settings_group.setStyleSheet(f"QGroupBox {{ background-color: {rgb_bg}; }}")
     rgb_settings_layout = QVBoxLayout(self._rgb_settings_group)
     rgb_settings_layout.setContentsMargins(12, 12, 12, 12)

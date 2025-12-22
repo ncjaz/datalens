@@ -300,6 +300,12 @@ class CaptureWorkspaceWidget(CaptureWorkspaceUi):
     def _on_depth_stream_toggled(self) -> None:
         return depth_controls.on_depth_stream_toggled(self)
 
+    def _on_colormap_changed(self) -> None:
+        return depth_controls.on_colormap_changed(self)
+
+    def _on_depth_alignment_changed(self) -> None:
+        return depth_controls.on_depth_alignment_changed(self)
+
     def _set_stream_mode(self, mode: str) -> None:
         return depth_controls.set_stream_mode(self, mode)
 

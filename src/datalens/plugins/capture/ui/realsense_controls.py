@@ -88,13 +88,68 @@ def apply_realsense_profiles(self, profiles: tuple[RealSenseColorProfile, ...]) 
     self._rs_profiles_by_format = {k: tuple(v) for k, v in by_format.items()}
     self._rs_profile_lookup = lookup
 
-    # Default selection mirrors V1 behavior:
-    # - prefer RGB8 if available
-    # - choose the largest resolution, then the highest FPS.
-    target = self._select_default_realsense_profile(prior=self._rs_selected_profile)
-    target_fmt = str(getattr(target, "format", "") or "").strip().lower() if target is not None else ""
-    target_res = (int(target.width), int(target.height)) if target is not None else None
-    target_fps = int(target.fps) if target is not None else None
+    # Load saved profile preference for this device (if available)
+    try:
+        device = self._device_combo.currentData()
+        device_id = str(getattr(device, "serial", "") or "").strip()
+    except Exception:
+        device_id = ""
+
+    saved_fmt, saved_res, saved_fps = None, None, None
+    if device_id:
+        try:
+            saved_fmt, saved_res, saved_fps = self._load_realsense_profile_preference(device_id)
+            if saved_fmt or saved_res or saved_fps:
+                log.debug(
+                    "Loaded RealSense profile preference",
+                    extra={
+                        "operation": "capture",
+                        "phase": "load_rs_profile_pref",
+                        "device_id": device_id,
+                        "format": saved_fmt,
+                        "resolution": saved_res,
+                        "fps": saved_fps,
+                    },
+                )
+        except Exception:
+            log.debug(
+                "Failed to load RealSense profile preference (best-effort)",
+                exc_info=True,
+                extra={"operation": "capture", "phase": "load_rs_profile_pref_error", "device_id": device_id},
+            )
+
+    # Determine target profile: prefer saved preference, fall back to smart default
+    target = None
+    target_fmt = None
+    target_res = None
+    target_fps = None
+
+    # Try to match saved preference
+    if saved_fmt and saved_res and saved_fps:
+        key = (saved_fmt.lower(), saved_res[0], saved_res[1], saved_fps)
+        target = lookup.get(key)
+        if target:
+            target_fmt = saved_fmt.lower()
+            target_res = saved_res
+            target_fps = saved_fps
+            log.debug(
+                "Using saved RealSense profile",
+                extra={
+                    "operation": "capture",
+                    "phase": "use_saved_rs_profile",
+                    "device_id": device_id,
+                    "format": target_fmt,
+                    "resolution": target_res,
+                    "fps": target_fps,
+                },
+            )
+
+    # Fall back to smart default if no saved preference or saved preference not available
+    if not target:
+        target = self._select_default_realsense_profile(prior=self._rs_selected_profile)
+        target_fmt = str(getattr(target, "format", "") or "").strip().lower() if target is not None else ""
+        target_res = (int(target.width), int(target.height)) if target is not None else None
+        target_fps = int(target.fps) if target is not None else None
 
     formats = sorted(self._rs_profiles_by_format.keys())
     preferred_fmt = self._pick_preferred_realsense_format(formats)
@@ -159,6 +214,19 @@ def update_selected_rs_profile(self) -> None:
         return
     key = (fmt, int(res[0]), int(res[1]), int(fps))
     self._rs_selected_profile = self._rs_profile_lookup.get(key)
+
+    # Save RealSense profile preference for this device
+    try:
+        device = self._device_combo.currentData()
+        device_id = str(getattr(device, "serial", "") or "").strip()
+        if device_id and fmt and res and fps is not None:
+            self._save_realsense_profile_preference(device_id, fmt, int(res[0]), int(res[1]), int(fps))
+    except Exception:
+        log.debug(
+            "Failed to save RealSense profile preference (best-effort)",
+            exc_info=True,
+            extra={"operation": "capture", "phase": "save_rs_profile_pref_error"},
+        )
 
 
 def populate_rs_resolutions(self, fmt: str, *, selected_resolution: tuple[int, int] | None) -> None:

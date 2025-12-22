@@ -236,6 +236,52 @@ def on_device_selected(self) -> None:
             self._set_stream_mode("rgb")
         return
 
+    # Load saved colormap and depth alignment preferences for this device
+    if serial:
+        try:
+            # Load colormap preference
+            saved_colormap = self._load_colormap_preference(serial)
+            try:
+                self._depth_colormap_combo.blockSignals(True)
+                for idx in range(self._depth_colormap_combo.count()):
+                    if str(self._depth_colormap_combo.itemData(idx) or "") == saved_colormap:
+                        self._depth_colormap_combo.setCurrentIndex(idx)
+                        log.debug(
+                            "Loaded colormap preference",
+                            extra={
+                                "operation": "capture",
+                                "phase": "load_colormap_pref",
+                                "device_id": serial,
+                                "colormap": saved_colormap,
+                            },
+                        )
+                        break
+            finally:
+                self._depth_colormap_combo.blockSignals(False)
+
+            # Load depth alignment preference
+            saved_alignment = self._load_depth_alignment_preference(serial)
+            try:
+                self._rs_depth_align_toggle.blockSignals(True)
+                self._rs_depth_align_toggle.set_current_id(saved_alignment, emit=False)
+                log.debug(
+                    "Loaded depth alignment preference",
+                    extra={
+                        "operation": "capture",
+                        "phase": "load_depth_alignment_pref",
+                        "device_id": serial,
+                        "alignment": saved_alignment,
+                    },
+                )
+            finally:
+                self._rs_depth_align_toggle.blockSignals(False)
+        except Exception:
+            log.debug(
+                "Failed to load device preferences (best-effort)",
+                exc_info=True,
+                extra={"operation": "capture", "phase": "load_device_prefs_error", "device_id": serial},
+            )
+
     self._rebuild_rgb_settings_placeholder()
     self._refresh_realsense_metadata_async(serial=serial)
 

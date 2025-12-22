@@ -101,6 +101,7 @@ def build_depth_visualization_controls(self) -> None:
         "Viridis/Plasma/Inferno: Perceptually uniform scientific colormaps\n"
         "Turbo: Improved rainbow colormap with better contrast"
     )
+    self._depth_colormap_combo.currentIndexChanged.connect(lambda *_: on_colormap_changed(self))
     self._depth_options_layout.addRow("Colormap", self._depth_colormap_combo)
 
     self._depth_auto_scale = DatalensCheckBox("Auto-scale depth range", self._theme, self._depth_options_widget)
@@ -361,6 +362,60 @@ def render_depth_to_rgb(self, depth_u16) -> object:
     return apply_colormap(u8, colormap, valid)
 
 
+def on_colormap_changed(self) -> None:
+    """Save colormap preference when changed."""
+    try:
+        device = self._device_combo.currentData()
+        device_id = str(getattr(device, "serial", "") or "").strip()
+        if not device_id:
+            return
+
+        colormap = str(self._depth_colormap_combo.currentData() or "grayscale")
+        self._save_colormap_preference(device_id, colormap)
+        log.debug(
+            "Saved colormap preference",
+            extra={
+                "operation": "capture",
+                "phase": "save_colormap_pref",
+                "device_id": device_id,
+                "colormap": colormap,
+            },
+        )
+    except Exception:
+        log.debug(
+            "Failed to save colormap preference (best-effort)",
+            exc_info=True,
+            extra={"operation": "capture", "phase": "save_colormap_pref_error"},
+        )
+
+
+def on_depth_alignment_changed(self) -> None:
+    """Save depth alignment preference when toggled."""
+    try:
+        device = self._device_combo.currentData()
+        device_id = str(getattr(device, "serial", "") or "").strip()
+        if not device_id:
+            return
+
+        alignment = str(self._rs_depth_align_toggle.current_id or "aligned")
+        self._save_depth_alignment_preference(device_id, alignment)
+        log.debug(
+            "Saved depth alignment preference",
+            extra={
+                "operation": "capture",
+                "phase": "save_depth_alignment_pref",
+                "device_id": device_id,
+                "alignment": alignment,
+            },
+        )
+    except Exception:
+        log.debug(
+            "Failed to save depth alignment preference (best-effort)",
+            exc_info=True,
+            extra={"operation": "capture", "phase": "save_depth_alignment_pref_error"},
+        )
+
+
 __all__ = [
     "apply_colormap",
     "apply_inferno_colormap",
@@ -369,6 +424,8 @@ __all__ = [
     "apply_turbo_colormap",
     "apply_viridis_colormap",
     "build_depth_visualization_controls",
+    "on_colormap_changed",
+    "on_depth_alignment_changed",
     "on_depth_stream_toggled",
     "render_depth_to_rgb",
     "set_stream_mode",
