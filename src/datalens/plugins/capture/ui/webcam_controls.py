@@ -25,7 +25,9 @@ def show_webcam_settings(self, *, device: CameraDevice) -> None:
         self._rs_fps_label,
         self._rs_fps_combo,
         self._rs_depth_label,
-        self._rs_depth_checkbox,
+        self._rs_depth_toggle,
+        self._rs_depth_align_label,
+        self._rs_depth_align_toggle,
     ):
         w.setVisible(False)
 

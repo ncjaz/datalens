@@ -259,7 +259,104 @@ def rebuild_rgb_settings_from_specs(self, specs: tuple[CameraOptionSpec, ...], *
         self._rgb_options_layout.addRow("", label)
         return
 
+    # Organize settings: auto-related first, then manual settings (matching webcam UX)
+    # Auto-related pairs: (manual_setting_id, auto_checkbox_id)
+    auto_pairs: dict[str, str] = {
+        "exposure": "enable_auto_exposure",
+        "white_balance": "enable_auto_white_balance",
+    }
+
+    by_id: dict[str, CameraOptionSpec] = {str(s.id): s for s in entries}
+
+    # Priority order: manual settings that have auto toggles come first
+    priority_ids: list[str] = []
+    for manual_id in auto_pairs.keys():
+        if manual_id in by_id:
+            priority_ids.append(manual_id)
+
+    # Build ordered list: priority settings first, then remaining
+    ordered: list[CameraOptionSpec] = []
+    seen: set[str] = set()
+
+    for spec_id in priority_ids:
+        spec = by_id.get(spec_id)
+        if spec is not None and spec_id not in seen:
+            ordered.append(spec)
+            seen.add(spec_id)
+            # Mark the auto toggle as seen so it doesn't get added separately
+            auto_id = auto_pairs.get(spec_id)
+            if auto_id:
+                seen.add(auto_id)
+
+    # Add remaining settings (exclude auto toggles that were paired)
     for spec in entries:
+        if str(spec.id) not in seen:
+            ordered.append(spec)
+            seen.add(str(spec.id))
+
+    # Helper to wrap a manual control with an auto button (matching webcam UX)
+    def _wrap_with_auto_button(manual_widget: QWidget, manual_spec: CameraOptionSpec, auto_spec: CameraOptionSpec) -> QWidget:
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QHBoxLayout, QWidget
+        from datalens.ui.widgets.core import create_icon_button
+        from datalens.ui.widgets.icons.auto_icon import auto_icon
+
+        row = QWidget(self._rgb_options_widget)
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.setSpacing(6)
+
+        row_layout.addWidget(manual_widget, 1)
+
+        btn = create_icon_button(self._theme, row, checkable=True)
+        btn.setObjectName("CaptureAutoOptionButton")
+
+        def update_icon(checked_state: bool) -> None:
+            bg = self._theme.confirm_color if checked_state else self._theme.cancel_color
+            btn.setIcon(auto_icon(self._theme, size=18, background_color=bg))
+
+        def update_tooltip(checked_state: bool) -> None:
+            state = "Enabled" if checked_state else "Disabled"
+            action = "disable" if checked_state else "enable"
+            btn.setToolTip(f"Auto: {state}\nClick to {action} auto")
+
+        # Set initial state from auto spec
+        auto_enabled = bool(auto_spec.current) if auto_spec.current is not None else True
+        btn.setChecked(auto_enabled)
+        manual_widget.setEnabled(not auto_enabled)
+        update_icon(auto_enabled)
+        update_tooltip(auto_enabled)
+
+        def on_toggled(checked_state: bool) -> None:
+            self._on_realsense_rgb_option_changed(serial=serial, option_id=str(auto_spec.id), value=bool(checked_state))
+            manual_widget.setEnabled(not checked_state)
+            update_icon(checked_state)
+            update_tooltip(checked_state)
+            if not checked_state:
+                # Re-apply the current manual value when leaving auto
+                if isinstance(manual_widget, DatalensSliderOption):
+                    try:
+                        self._on_realsense_rgb_option_changed(
+                            serial=serial, option_id=str(manual_spec.id), value=float(manual_widget.value())
+                        )
+                    except Exception:
+                        pass
+
+        btn.toggled.connect(on_toggled)
+        row_layout.addWidget(btn, 0, alignment=Qt.AlignVCenter)
+
+        # Store both widgets for state management
+        self._rs_option_widgets[str(manual_spec.id)] = manual_widget
+        self._rs_option_widgets[str(auto_spec.id)] = btn
+
+        return row
+
+    # Build UI rows in priority order
+    for spec in ordered:
+        # Check if this manual setting has an auto toggle
+        auto_id = auto_pairs.get(str(spec.id))
+        auto_spec = by_id.get(auto_id) if auto_id else None
+
         if spec.kind == "bool":
             cb = DatalensCheckBox("", self._theme, self._rgb_options_widget)
             if spec.current is not None:
@@ -309,8 +406,14 @@ def rebuild_rgb_settings_from_specs(self, specs: tuple[CameraOptionSpec, ...], *
                     serial=serial, option_id=opt_id, value=float(value)
                 )
             )
-            self._rgb_options_layout.addRow(str(spec.label), slider)
-            self._rs_option_widgets[str(spec.id)] = slider
+
+            # If this manual setting has an auto toggle, wrap with auto button
+            if auto_spec is not None:
+                wrapped = _wrap_with_auto_button(slider, spec, auto_spec)
+                self._rgb_options_layout.addRow(str(spec.label), wrapped)
+            else:
+                self._rgb_options_layout.addRow(str(spec.label), slider)
+                self._rs_option_widgets[str(spec.id)] = slider
             continue
 
         label = QLabel("Unsupported", self._rgb_options_widget)
@@ -321,6 +424,15 @@ def rebuild_rgb_settings_from_specs(self, specs: tuple[CameraOptionSpec, ...], *
 
 
 def apply_auto_option_states(self) -> None:
+    """
+    Apply auto option states to manual controls.
+
+    Note: For manual settings with auto buttons (exposure, white_balance),
+    the enable/disable logic is handled directly in the auto button wrapper.
+    This function handles any remaining standalone auto checkboxes.
+    """
+    from PySide6.QtWidgets import QPushButton
+
     mapping = {
         "enable_auto_exposure": "exposure",
         "enable_auto_white_balance": "white_balance",
@@ -332,7 +444,11 @@ def apply_auto_option_states(self) -> None:
             continue
         try:
             enabled = True
-            if isinstance(auto_w, DatalensCheckBox):
+            # Auto button (new UI pattern)
+            if isinstance(auto_w, QPushButton) and auto_w.isCheckable():
+                enabled = not bool(auto_w.isChecked())
+            # Auto checkbox (legacy pattern)
+            elif isinstance(auto_w, DatalensCheckBox):
                 enabled = not bool(auto_w.isChecked())
             manual_w.setEnabled(bool(enabled))
         except Exception:

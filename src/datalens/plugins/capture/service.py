@@ -83,6 +83,7 @@ class CaptureService:
         self._latest: FrameBundle | None = None
         self._realsense_profile: RealSenseColorProfile | None = None
         self._realsense_enable_depth: bool = False
+        self._realsense_align_depth_to_color: bool = False
         self._rs_option_updates: "queue.Queue[tuple[str, str, float]]" = queue.Queue()
         self._rs_pending_options: dict[str, dict[str, float]] = {}
         self._rs_profiles_cache: dict[str, tuple[RealSenseColorProfile, ...]] = {}
@@ -996,6 +997,7 @@ class CaptureService:
         device: CameraDevice | None,
         realsense_profile: RealSenseColorProfile | None = None,
         enable_depth: bool = False,
+        align_depth_to_color: bool = False,
     ) -> bool:
         """
         Start capture from `device` in a background thread.
@@ -1012,6 +1014,7 @@ class CaptureService:
             self._stop.clear()
             self._realsense_profile = realsense_profile
             self._realsense_enable_depth = bool(enable_depth)
+            self._realsense_align_depth_to_color = bool(align_depth_to_color)
 
             thread = threading.Thread(
                 target=self._run,
@@ -1030,6 +1033,7 @@ class CaptureService:
                 "device_kind": (self._device.kind.value if self._device else None),
                 "rs_profile": (self._realsense_profile.key if self._realsense_profile else None),
                 "rs_depth": bool(self._realsense_enable_depth),
+                "rs_align_depth": bool(self._realsense_align_depth_to_color),
             },
         )
         return True
@@ -1055,11 +1059,12 @@ class CaptureService:
             device = self._device
             rs_profile = self._realsense_profile
             rs_depth = bool(self._realsense_enable_depth)
+            rs_align = bool(self._realsense_align_depth_to_color)
         if device is None:
             device = CameraDevice(device_id="cv_0", display_name="[CV] Webcam 0", kind=CameraKind.WEBCAM, device_index=0)
 
         if device.kind is CameraKind.REALSENSE:
-            self._run_realsense(device=device, profile=rs_profile, enable_depth=rs_depth)
+            self._run_realsense(device=device, profile=rs_profile, enable_depth=rs_depth, align_depth_to_color=rs_align)
             return
 
         try:
@@ -1180,7 +1185,7 @@ class CaptureService:
                 extra={"operation": "capture", "phase": "stopped", "device_index": idx, "device_id": device.device_id},
             )
 
-    def _run_realsense(self, *, device: CameraDevice, profile: RealSenseColorProfile | None, enable_depth: bool) -> None:
+    def _run_realsense(self, *, device: CameraDevice, profile: RealSenseColorProfile | None, enable_depth: bool, align_depth_to_color: bool = False) -> None:
         try:
             import numpy as np  # type: ignore
             import pyrealsense2 as rs  # type: ignore
@@ -1287,6 +1292,17 @@ class CaptureService:
         except Exception:
             color_sensor = None
 
+        # Create alignment object if depth alignment is requested.
+        align = None
+        if depth_enabled and align_depth_to_color:
+            try:
+                align = rs.align(rs.stream.color)
+            except Exception:
+                log.info(
+                    "RealSense depth alignment setup failed (best-effort)",
+                    extra={"operation": "capture", "phase": "rs_align_setup_failed", "serial": serial},
+                )
+
         with self._lock:
             self._status = "running"
             self._error = None
@@ -1299,6 +1315,7 @@ class CaptureService:
                 "device_id": device.device_id,
                 "serial": serial,
                 "depth_enabled": bool(depth_enabled),
+                "depth_aligned": bool(align is not None),
             },
         )
 
@@ -1366,6 +1383,14 @@ class CaptureService:
                     frames = pipeline.wait_for_frames(timeout_ms=5000)
                 except Exception:
                     continue
+
+                # Apply alignment if requested (aligns depth to color).
+                if align is not None:
+                    try:
+                        frames = align.process(frames)
+                    except Exception:
+                        # Alignment failed; continue with unaligned frames.
+                        pass
 
                 color_frame = frames.get_color_frame()
                 if not color_frame:

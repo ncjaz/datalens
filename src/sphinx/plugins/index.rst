@@ -26,6 +26,7 @@ background services, data sources, model integrations, and shared capabilities.
    streaming
    commands
    capture
+   depth_controls
    logging
    writer
    ui_presentation

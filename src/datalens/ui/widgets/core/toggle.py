@@ -163,7 +163,7 @@ class Toggle(QWidget, StyledMixin):
 
         base_bg, selected_bg, hover_unselected, hover_selected = self._resolve_colors(
             theme,
-            default_base=s.background_color,
+            default_base=s.background_secondary_color,  # Use secondary background for unselected state
             default_selected=s.primary_color,
         )
 
@@ -171,26 +171,29 @@ class Toggle(QWidget, StyledMixin):
         vpad = self._pill_vpadding
         hpad = self._pill_hpadding
 
-        # Border: slightly brighter than selected/background unless overridden
+        # Border: different for selected vs unselected
         if self._border_color_override:
-            border_color = self._border_color_override
+            border_selected = self._border_color_override
+            border_unselected = self._border_color_override
         else:
-            # Lighten selected colour a bit for border; fallback to base if invalid
-            border_color = lighten_hex(selected_bg or base_bg, factor=1.15)
+            # Selected: slightly brighter than selected color
+            border_selected = lighten_hex(selected_bg, factor=1.15)
+            # Unselected: subtle border at 50% opacity (less eye-popping)
+            border_unselected = theme.with_alpha_hex(s.primary_border, 0.50)
 
         text_color = s.text_color
 
         # Disabled colours: derived from theme opacity policy (consistent across UI)
-        disabled_bg = theme.disabled_fill_color(s.background_color)
+        disabled_bg = theme.disabled_fill_color(s.background_secondary_color)
         disabled_text = theme.disabled_text_color()
-        disabled_border = theme.disabled_border_color(s.background_color)
+        disabled_border = theme.disabled_border_color(s.accent_cancel_border)
 
         qss = f"""
         QToolButton[segment="left"],
         QToolButton[segment="right"] {{
             background-color: {base_bg};
             color: {text_color};
-            border: 1px solid {border_color};
+            border: 1px solid {border_unselected};
             padding: {vpad}px {hpad}px;
             border-radius: {radius}px;
         }}
@@ -221,6 +224,7 @@ class Toggle(QWidget, StyledMixin):
         QToolButton[segment="right"]:checked:enabled {{
             background-color: {selected_bg};
             color: {text_color};
+            border: 1px solid {border_selected};
         }}
 
         /* Hover while selected */
@@ -336,6 +340,38 @@ class Toggle(QWidget, StyledMixin):
     def enable(self) -> None:
         """Enable the toggle."""
         self.setEnabled(True)
+
+    def set_size(self, size: str) -> None:
+        """
+        Set toggle size from preset: "small", "medium" (default), or "large".
+
+        This is a convenience method that sets radius and padding proportionally
+        to maintain the pill shape at different scales.
+
+        Sizes:
+            - "small":  24px tall (vpad=4, hpad=12, radius=12)
+            - "medium": 32px tall (vpad=6, hpad=18, radius=16) [default]
+            - "large":  40px tall (vpad=8, hpad=24, radius=20)
+
+        Example:
+            toggle.set_size("small")
+            toggle.apply_theme(theme)
+        """
+        sizes = {
+            "tiny":   (8,  2,  8),   # 20px tall - very compact
+            "small":  (10, 3, 10),   # 22px tall - compact
+            "medium": (12, 4, 12),   # 24px tall - balanced
+            "default":(16, 6, 18),   # 32px tall - V1 style
+            "large":  (20, 8, 24),   # 40px tall - prominent
+        }
+
+        if size not in sizes:
+            raise ValueError(f"Invalid size '{size}'. Choose 'small', 'medium', or 'large'.")
+
+        radius, vpad, hpad = sizes[size]
+        self._pill_radius = radius
+        self._pill_vpadding = vpad
+        self._pill_hpadding = hpad
 
     # ------------------------------------------------------------------
     # Internal helper

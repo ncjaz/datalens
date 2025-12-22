@@ -158,14 +158,18 @@ def on_start_stop_clicked(self) -> None:
         self._set_auto_refresh(False, immediate=False)
     if getattr(device, "kind", None) == CameraKind.REALSENSE:
         enable_depth = False
+        align_depth = False
         try:
-            enable_depth = bool(self._rs_depth_checkbox.isChecked())
+            enable_depth = bool(self._rs_depth_toggle.current_id == "enabled")
+            align_depth = bool(self._rs_depth_align_toggle.current_id == "aligned")
         except Exception:
             enable_depth = False
+            align_depth = False
         ok = self._service.start_async(
             device=device,
             realsense_profile=self._rs_selected_profile,
             enable_depth=enable_depth,
+            align_depth_to_color=align_depth,
         )
     else:
         ok = self._service.start_async(device=device)
@@ -196,7 +200,9 @@ def on_device_selected(self) -> None:
         self._rs_fps_label,
         self._rs_fps_combo,
         self._rs_depth_label,
-        self._rs_depth_checkbox,
+        self._rs_depth_toggle,
+        self._rs_depth_align_label,
+        self._rs_depth_align_toggle,
     ):
         w.setVisible(bool(is_rs))
 
@@ -218,10 +224,10 @@ def on_device_selected(self) -> None:
             self._rs_fps_combo.blockSignals(False)
 
         try:
-            self._rs_depth_checkbox.blockSignals(True)
-            self._rs_depth_checkbox.setChecked(False)
+            self._rs_depth_toggle.blockSignals(True)
+            self._rs_depth_toggle.set_current_id("disabled", emit=False)
         finally:
-            self._rs_depth_checkbox.blockSignals(False)
+            self._rs_depth_toggle.blockSignals(False)
 
         self._rebuild_rgb_settings_placeholder()
         if getattr(self, "_stream_mode", "rgb") == "depth":
@@ -317,18 +323,15 @@ def refresh_controls(self) -> None:
             supports_depth = False
 
         try:
-            supports_depth = bool(supports_depth and self._rs_depth_checkbox.isChecked())
+            depth_enabled = bool(self._rs_depth_toggle.current_id == "enabled")
+            supports_depth = bool(supports_depth and depth_enabled)
         except Exception:
             supports_depth = False
         self._save_formats.set_option_enabled("depth", bool(supports_depth))
         if not supports_depth and want_depth:
             self._save_formats.set_checked("depth", False, emit=False)
 
-        depth_stream_enabled = False
-        try:
-            depth_stream_enabled = bool(supports_depth and self._rs_depth_checkbox.isChecked())
-        except Exception:
-            depth_stream_enabled = False
+        depth_stream_enabled = bool(supports_depth)
         try:
             self._stream_mode_toggle.set_option_enabled("depth", bool(depth_stream_enabled))
             if not depth_stream_enabled and getattr(self, "_stream_mode", "rgb") == "depth":
@@ -337,9 +340,9 @@ def refresh_controls(self) -> None:
         except Exception:
             pass
 
-        rs_controls_enabled = bool(supports_depth and not starting and not running)
+        rs_controls_enabled = bool(not starting and not running)
         try:
-            for w in (self._rs_format_combo, self._rs_resolution_combo, self._rs_fps_combo, self._rs_depth_checkbox):
+            for w in (self._rs_format_combo, self._rs_resolution_combo, self._rs_fps_combo, self._rs_depth_toggle, self._rs_depth_align_toggle):
                 w.setEnabled(bool(rs_controls_enabled))
         except Exception:
             pass

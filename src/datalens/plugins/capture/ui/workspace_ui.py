@@ -17,7 +17,6 @@ from PySide6.QtWidgets import (
 
 from datalens.ui.theme.app_theme import AppTheme
 from datalens.ui.widgets.core.buttons import ButtonVariant, DatalensButton
-from datalens.ui.widgets.core.checkboxes import DatalensCheckBox
 from datalens.ui.widgets.core.icon_button import create_icon_button
 from datalens.ui.widgets.core.splitter import DatalensResizableSplitter
 from datalens.ui.widgets.core.toggle import Toggle, ToggleOption
@@ -96,6 +95,7 @@ def build(self, *, theme: AppTheme) -> None:
     device_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
 
     self._device_combo = QComboBox(device_group)
+    self._device_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
     self._device_combo.currentIndexChanged.connect(lambda *_: self._on_device_selected())
 
     self._refresh_btn = create_icon_button(
@@ -118,24 +118,50 @@ def build(self, *, theme: AppTheme) -> None:
 
     self._rs_format_label = QLabel("RGB Format", device_group)
     self._rs_format_combo = QComboBox(device_group)
+    self._rs_format_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
     self._rs_format_combo.currentIndexChanged.connect(lambda *_: self._on_rs_format_changed())
     device_layout.addRow(self._rs_format_label, self._rs_format_combo)
 
     self._rs_resolution_label = QLabel("Resolution", device_group)
     self._rs_resolution_combo = QComboBox(device_group)
+    self._rs_resolution_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
     self._rs_resolution_combo.currentIndexChanged.connect(lambda *_: self._on_rs_resolution_changed())
     device_layout.addRow(self._rs_resolution_label, self._rs_resolution_combo)
 
     self._rs_fps_label = QLabel("Frame Rate", device_group)
     self._rs_fps_combo = QComboBox(device_group)
+    self._rs_fps_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
     self._rs_fps_combo.currentIndexChanged.connect(lambda *_: self._on_rs_fps_changed())
     device_layout.addRow(self._rs_fps_label, self._rs_fps_combo)
 
     self._rs_depth_label = QLabel("Depth Sensor", device_group)
-    self._rs_depth_checkbox = DatalensCheckBox("Enable depth stream", theme, device_group)
-    self._rs_depth_checkbox.setChecked(False)
-    self._rs_depth_checkbox.toggled.connect(lambda *_: self._on_depth_stream_toggled())
-    device_layout.addRow(self._rs_depth_label, self._rs_depth_checkbox)
+    self._rs_depth_toggle = Toggle(
+        theme,
+        ToggleOption("disabled", "Disabled"),
+        ToggleOption("enabled", "Enabled"),
+        exclusive=True,
+        parent=device_group,
+    )
+    self._rs_depth_toggle.set_size("small")
+    self._rs_depth_toggle.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+    self._rs_depth_toggle.apply_theme(theme)
+    self._rs_depth_toggle.set_current_id("disabled", emit=False)
+    self._rs_depth_toggle.selectionChanged.connect(lambda *_: self._on_depth_stream_toggled())
+    device_layout.addRow(self._rs_depth_label, self._rs_depth_toggle)
+
+    self._rs_depth_align_label = QLabel("Depth Alignment", device_group)
+    self._rs_depth_align_toggle = Toggle(
+        theme,
+        ToggleOption("standard", "Standard"),
+        ToggleOption("aligned", "Aligned to RGB"),
+        exclusive=True,
+        parent=device_group,
+    )
+    self._rs_depth_align_toggle.set_size("small")
+    self._rs_depth_align_toggle.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+    self._rs_depth_align_toggle.apply_theme(theme)
+    self._rs_depth_align_toggle.set_current_id("standard", emit=False)
+    device_layout.addRow(self._rs_depth_align_label, self._rs_depth_align_toggle)
 
     for w in (
         self._rs_format_label,
@@ -145,7 +171,9 @@ def build(self, *, theme: AppTheme) -> None:
         self._rs_fps_label,
         self._rs_fps_combo,
         self._rs_depth_label,
-        self._rs_depth_checkbox,
+        self._rs_depth_toggle,
+        self._rs_depth_align_label,
+        self._rs_depth_align_toggle,
     ):
         w.setVisible(False)
 
@@ -182,6 +210,10 @@ def build(self, *, theme: AppTheme) -> None:
         exclusive=False,
         parent=save_group,
     )
+    # Make toggle more compact (V1-style sizing: less prominent, more widget-like)
+    self._save_formats.set_size("small")
+    self._save_formats.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)  # Don't stretch
+    self._save_formats.apply_theme(theme)
     self._save_formats.set_checked("rgb", True, emit=False)
     self._save_formats.set_checked("depth", False, emit=False)
     self._save_formats.optionToggled.connect(lambda *_: self._refresh_controls())
@@ -210,11 +242,15 @@ def build(self, *, theme: AppTheme) -> None:
         exclusive=True,
         parent=stream_row,
     )
+    # Make toggle more compact (V1-style sizing: less prominent, more widget-like)
+    self._stream_mode_toggle.set_size("tiny")
+    self._stream_mode_toggle.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)  # Don't stretch
+    self._stream_mode_toggle.apply_theme(theme)
     self._stream_mode_toggle.selectionChanged.connect(lambda mode: self._set_stream_mode(str(mode)))
     self._stream_mode_toggle.set_current_id("rgb", emit=False)
 
     stream_row_layout.addWidget(stream_label, 0)
-    stream_row_layout.addWidget(self._stream_mode_toggle, 1)
+    stream_row_layout.addWidget(self._stream_mode_toggle, 0)  # Changed from 1 to 0 to not stretch
     capture_layout.addWidget(stream_row)
 
     self._start_stop = DatalensButton("Start", theme, ButtonVariant.CONFIRM, capture_group)

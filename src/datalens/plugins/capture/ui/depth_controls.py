@@ -17,10 +17,10 @@ def on_depth_stream_toggled(self) -> None:
         status = self._service.status()
         if str(status.get("status")) in {"starting", "running"}:
             try:
-                self._rs_depth_checkbox.blockSignals(True)
-                self._rs_depth_checkbox.setChecked(False)
+                self._rs_depth_toggle.blockSignals(True)
+                self._rs_depth_toggle.set_current_id("disabled", emit=False)
             finally:
-                self._rs_depth_checkbox.blockSignals(False)
+                self._rs_depth_toggle.blockSignals(False)
             self._publish_status("Stop the camera to toggle the depth stream.")
             return
     except Exception:
@@ -30,7 +30,8 @@ def on_depth_stream_toggled(self) -> None:
             extra={"operation": "capture", "phase": "rs_depth_toggle_status_error"},
         )
 
-    if not bool(self._rs_depth_checkbox.isChecked()) and getattr(self, "_stream_mode", "rgb") == "depth":
+    depth_enabled = bool(self._rs_depth_toggle.current_id == "enabled")
+    if not depth_enabled and getattr(self, "_stream_mode", "rgb") == "depth":
         self._stream_mode_toggle.set_current_id("rgb", emit=False)
         set_stream_mode(self, "rgb")
 
@@ -45,8 +46,9 @@ def set_stream_mode(self, mode: str) -> None:
     allow_depth = False
     try:
         device = self._device_combo.currentData()
+        depth_enabled = bool(self._rs_depth_toggle.current_id == "enabled")
         allow_depth = bool(
-            isinstance(device, CameraDevice) and device.kind == CameraKind.REALSENSE and bool(self._rs_depth_checkbox.isChecked())
+            isinstance(device, CameraDevice) and device.kind == CameraKind.REALSENSE and depth_enabled
         )
     except Exception:
         allow_depth = False
@@ -73,11 +75,21 @@ def build_depth_visualization_controls(self) -> None:
 
     self._depth_auto_scale = DatalensCheckBox("Auto-scale depth range", self._theme, self._depth_options_widget)
     self._depth_auto_scale.setChecked(True)
+    self._depth_auto_scale.setToolTip(
+        "Automatically adjust depth range for visualization.\n"
+        "When enabled, uses either percentile or min/max values from the current frame.\n"
+        "When disabled, uses fixed near/far distances."
+    )
     self._depth_auto_scale.toggled.connect(lambda *_: sync_depth_visualization_controls(self))
     self._depth_options_layout.addRow("", self._depth_auto_scale)
 
     self._depth_use_percentiles = DatalensCheckBox("Use percentiles for auto-scale", self._theme, self._depth_options_widget)
     self._depth_use_percentiles.setChecked(True)
+    self._depth_use_percentiles.setToolTip(
+        "Use percentile-based range calculation instead of min/max.\n"
+        "Percentiles (default 1% to 99%) filter out outliers for better visualization.\n"
+        "Disabled: uses absolute minimum and maximum depth values in the frame."
+    )
     self._depth_use_percentiles.toggled.connect(lambda *_: sync_depth_visualization_controls(self))
     self._depth_options_layout.addRow("", self._depth_use_percentiles)
 
@@ -91,12 +103,22 @@ def build_depth_visualization_controls(self) -> None:
     self._depth_percentile_low.setSingleStep(0.5)
     self._depth_percentile_low.setValue(1.0)
     self._depth_percentile_low.setSuffix("%")
+    self._depth_percentile_low.setToolTip(
+        "Lower percentile threshold (default 1%).\n"
+        "Depth values below this percentile are clamped to black in visualization.\n"
+        "Higher values increase contrast by ignoring closer objects."
+    )
 
     self._depth_percentile_high = QDoubleSpinBox(perc_row)
     self._depth_percentile_high.setRange(0.0, 100.0)
     self._depth_percentile_high.setSingleStep(0.5)
     self._depth_percentile_high.setValue(99.0)
     self._depth_percentile_high.setSuffix("%")
+    self._depth_percentile_high.setToolTip(
+        "Upper percentile threshold (default 99%).\n"
+        "Depth values above this percentile are clamped to white in visualization.\n"
+        "Lower values increase contrast by ignoring farther objects."
+    )
 
     perc_layout.addWidget(self._depth_percentile_low, 1)
     perc_layout.addWidget(self._depth_percentile_high, 1)
@@ -107,6 +129,11 @@ def build_depth_visualization_controls(self) -> None:
     self._depth_manual_near_m.setSingleStep(0.05)
     self._depth_manual_near_m.setValue(0.2)
     self._depth_manual_near_m.setSuffix(" m")
+    self._depth_manual_near_m.setToolTip(
+        "Closest distance for manual range (default 0.2 m).\n"
+        "Objects at or closer than this distance appear black.\n"
+        "Only used when auto-scale is disabled."
+    )
     self._depth_options_layout.addRow("Near", self._depth_manual_near_m)
 
     self._depth_manual_far_m = QDoubleSpinBox(self._depth_options_widget)
@@ -114,6 +141,11 @@ def build_depth_visualization_controls(self) -> None:
     self._depth_manual_far_m.setSingleStep(0.05)
     self._depth_manual_far_m.setValue(2.0)
     self._depth_manual_far_m.setSuffix(" m")
+    self._depth_manual_far_m.setToolTip(
+        "Farthest distance for manual range (default 2.0 m).\n"
+        "Objects at or farther than this distance appear white.\n"
+        "Only used when auto-scale is disabled."
+    )
     self._depth_options_layout.addRow("Far", self._depth_manual_far_m)
 
     sync_depth_visualization_controls(self)
