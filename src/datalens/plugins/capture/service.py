@@ -728,31 +728,60 @@ class CaptureService:
         """
         serial_s = str(serial or "").strip()
         if not serial_s:
+            log.debug(
+                "RealSense profile enumeration skipped: no serial provided",
+                extra={"operation": "capture", "phase": "rs_profiles_no_serial"},
+            )
             return ()
         cached = self._rs_profiles_cache.get(serial_s)
         if cached is not None:
+            log.debug(
+                "Using cached RealSense profiles",
+                extra={"operation": "capture", "phase": "rs_profiles_cache_hit", "serial": serial_s, "count": len(cached)},
+            )
             return cached
 
         try:
             import pyrealsense2 as rs  # type: ignore
-        except Exception:
+        except Exception as exc:
+            log.warning(
+                "pyrealsense2 not available - cannot enumerate profiles",
+                exc_info=True,
+                extra={"operation": "capture", "phase": "rs_profiles_import_error", "serial": serial_s, "error": str(exc)},
+            )
             return ()
 
         try:
             ctx = rs.context()
             target = None
-            for dev in ctx.query_devices():
+            devices = list(ctx.query_devices())
+            log.debug(
+                "Querying RealSense devices for profile enumeration",
+                extra={"operation": "capture", "phase": "rs_query_devices", "serial": serial_s, "device_count": len(devices)},
+            )
+            for dev in devices:
                 try:
-                    if str(dev.get_info(rs.camera_info.serial_number)) == serial_s:
+                    dev_serial = str(dev.get_info(rs.camera_info.serial_number))
+                    if dev_serial == serial_s:
                         target = dev
+                        log.debug(
+                            "Found matching RealSense device",
+                            extra={"operation": "capture", "phase": "rs_device_found", "serial": serial_s},
+                        )
                         break
                 except Exception:
                     continue
             if target is None:
+                log.warning(
+                    "RealSense device not found by serial number",
+                    extra={"operation": "capture", "phase": "rs_device_not_found", "serial": serial_s, "available_devices": len(devices)},
+                )
                 return ()
 
             profiles: dict[str, RealSenseColorProfile] = {}
+            sensor_count = 0
             for sensor in getattr(target, "sensors", []):
+                sensor_count += 1
                 try:
                     sp = sensor.get_stream_profiles()
                 except Exception:
@@ -788,10 +817,21 @@ class CaptureService:
 
             out = tuple(sorted(profiles.values(), key=lambda p: (p.width, p.height, p.fps, p.format)))
             self._rs_profiles_cache[serial_s] = out
+            log.info(
+                "RealSense profile enumeration completed",
+                extra={
+                    "operation": "capture",
+                    "phase": "rs_profiles_success",
+                    "serial": serial_s,
+                    "sensor_count": sensor_count,
+                    "profile_count": len(out),
+                    "profiles": [p.key for p in out] if out else [],
+                },
+            )
             return out
         except Exception:
-            log.debug(
-                "RealSense profile enumeration failed (best-effort)",
+            log.warning(
+                "RealSense profile enumeration failed",
                 exc_info=True,
                 extra={"operation": "capture", "phase": "rs_profiles_error", "serial": serial_s},
             )
