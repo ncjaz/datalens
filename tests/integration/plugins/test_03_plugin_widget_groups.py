@@ -314,6 +314,12 @@ def test_plugin_widget_groups(request, datalens_app):
 
     generate_inventory = request.config.getoption("--generate-inventory")
 
+    # Install error capturing handler for the entire test session
+    # NOTE: Must add to "datalens" logger because it has propagate=False
+    error_handler = ErrorCapturingHandler()
+    datalens_logger = logging.getLogger("datalens")
+    datalens_logger.addHandler(error_handler)
+
     try:
         all_results = {}
 
@@ -322,11 +328,21 @@ def test_plugin_widget_groups(request, datalens_app):
             print(f"Testing plugin: {plugin_id}")
             print(f"{'─'*70}\n")
 
+            # Clear errors before testing this plugin
+            error_handler.clear()
+
             # Create the plugin workspace
             workspace = create_plugin_workspace(plugin_id, datalens_app)
             if not workspace:
                 print(f"⚠ Skipping {plugin_id}: no workspace available")
                 continue
+
+            # Check if workspace creation caused any errors
+            if error_handler.has_errors():
+                error_summary = error_handler.get_error_summary()
+                raise AssertionError(
+                    f"Plugin '{plugin_id}' workspace creation caused errors:\n{error_summary}"
+                )
 
             try:
                 workspace.show()
@@ -355,7 +371,7 @@ def test_plugin_widget_groups(request, datalens_app):
                 failed = 0
                 for group in groups:
                     try:
-                        _test_widget_group_interactions(group)
+                        _test_widget_group_interactions(group, error_handler)
                         passed += 1
                     except Exception as e:
                         failed += 1
@@ -401,6 +417,8 @@ def test_plugin_widget_groups(request, datalens_app):
         assert total_failed == 0, f"{total_failed} widget group(s) failed testing"
 
     finally:
+        # Remove error handler
+        datalens_logger.removeHandler(error_handler)
         # Restore original plugin state
         restore_plugin_state(datalens_app, original_enabled)
         print(f"✓ Restored original plugin state")
@@ -520,12 +538,12 @@ def _close_any_popups():
             continue
 
 
-def _test_widget_group_interactions(group: WidgetGroup):
+def _test_widget_group_interactions(group: WidgetGroup, error_handler: ErrorCapturingHandler):
     """
     Test all interactions within a widget group.
 
     This is a generalized test that:
-    1. Installs an error-capturing logging handler
+    1. Uses the provided error-capturing logging handler
     2. Tests ALL buttons in the widget group (clicks each ONE AT A TIME)
     3. After each button click, closes any popup dialogs that appeared
     4. Tests specific patterns (slider+auto, dropdown+refresh, etc.)
@@ -536,94 +554,91 @@ def _test_widget_group_interactions(group: WidgetGroup):
 
     IMPORTANT: Buttons are clicked one at a time, and any popups that appear
     are automatically closed to prevent tests from hanging.
+
+    Args:
+        group: The widget group to test
+        error_handler: Pre-installed error capturing handler from the parent test
     """
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QComboBox, QLineEdit, QPushButton, QToolButton
 
-    # Install error capturing handler BEFORE any interactions
-    error_handler = ErrorCapturingHandler()
-    root_logger = logging.getLogger()
-    root_logger.addHandler(error_handler)
+    # Clear previous errors before testing this group
+    error_handler.clear()
 
-    try:
-        # GENERALIZED: Test ALL buttons in the widget group
-        # This ensures we catch errors from any button, not just known patterns
-        all_buttons = []
-        for role, widget in group.widgets.items():
-            if isinstance(widget, (QPushButton, QToolButton)):
-                all_buttons.append((role, widget))
+    # GENERALIZED: Test ALL buttons in the widget group
+    # This ensures we catch errors from any button, not just known patterns
+    all_buttons = []
+    for role, widget in group.widgets.items():
+        if isinstance(widget, (QPushButton, QToolButton)):
+            all_buttons.append((role, widget))
 
-        # Click buttons ONE AT A TIME and handle popups
-        for role, button in all_buttons:
-            if button.isVisible() and button.isEnabled():
-                # Clear previous errors before this button click
-                error_count_before = len(error_handler.errors)
+    # Click buttons ONE AT A TIME and handle popups
+    for role, button in all_buttons:
+        if button.isVisible() and button.isEnabled():
+            # Clear previous errors before this button click
+            error_count_before = len(error_handler.errors)
 
-                # Click the button
-                QTest.mouseClick(button, Qt.LeftButton)
-                QTest.qWait(100)  # Wait for any async operations
+            # Click the button
+            QTest.mouseClick(button, Qt.LeftButton)
+            QTest.qWait(100)  # Wait for any async operations
 
-                # CRITICAL: Close any popups that appeared
-                # This prevents tests from hanging on modal dialogs
-                _close_any_popups()
-                QTest.qWait(50)  # Let close operations complete
+            # CRITICAL: Close any popups that appeared
+            # This prevents tests from hanging on modal dialogs
+            _close_any_popups()
+            QTest.qWait(50)  # Let close operations complete
 
-                # Check if THIS button click caused errors
-                error_count_after = len(error_handler.errors)
-                if error_count_after > error_count_before:
-                    # Get errors caused by this button
-                    new_errors = error_handler.errors[error_count_before:]
-                    error_details = []
-                    for err in new_errors:
-                        error_details.append(f"[{err['level']}] {err['name']}: {err['message']}")
-                    raise AssertionError(
-                        f"Button '{role}' in '{group.section} > {group.control}' caused errors:\n" +
-                        "\n".join(error_details)
-                    )
+            # Check if THIS button click caused errors
+            error_count_after = len(error_handler.errors)
+            if error_count_after > error_count_before:
+                # Get errors caused by this button
+                new_errors = error_handler.errors[error_count_before:]
+                error_details = []
+                for err in new_errors:
+                    error_details.append(f"[{err['level']}] {err['name']}: {err['message']}")
+                raise AssertionError(
+                    f"Button '{role}' in '{group.section} > {group.control}' caused errors:\n" +
+                    "\n".join(error_details)
+                )
 
-        # SPECIFIC PATTERNS: Test known interaction patterns for completeness
+    # SPECIFIC PATTERNS: Test known interaction patterns for completeness
 
-        # Pattern: Slider + Auto Button (toggle behavior)
-        if "slider" in group.widgets and "auto_button" in group.widgets:
-            auto_button = group.widgets["auto_button"]
-            if auto_button.isCheckable():
-                initial_state = auto_button.isChecked()
-                QTest.mouseClick(auto_button, Qt.LeftButton)
-                QTest.qWait(50)
-                assert auto_button.isChecked() != initial_state, \
-                    f"Auto button should toggle state for {group.control}"
-                QTest.mouseClick(auto_button, Qt.LeftButton)
-                QTest.qWait(50)
-                assert auto_button.isChecked() == initial_state, \
-                    f"Auto button should return to initial state for {group.control}"
+    # Pattern: Slider + Auto Button (toggle behavior)
+    if "slider" in group.widgets and "auto_button" in group.widgets:
+        auto_button = group.widgets["auto_button"]
+        if auto_button.isCheckable():
+            initial_state = auto_button.isChecked()
+            QTest.mouseClick(auto_button, Qt.LeftButton)
+            QTest.qWait(50)
+            assert auto_button.isChecked() != initial_state, \
+                f"Auto button should toggle state for {group.control}"
+            QTest.mouseClick(auto_button, Qt.LeftButton)
+            QTest.qWait(50)
+            assert auto_button.isChecked() == initial_state, \
+                f"Auto button should return to initial state for {group.control}"
 
-        # Pattern: Dropdown + Refresh
-        if "dropdown" in group.widgets and "refresh_button" in group.widgets:
-            dropdown = group.widgets["dropdown"]
-            refresh_button = group.widgets["refresh_button"]
-            if isinstance(dropdown, QComboBox) and isinstance(refresh_button, QPushButton):
-                if refresh_button.isEnabled():
-                    QTest.mouseClick(refresh_button, Qt.LeftButton)
-                    QTest.qWait(100)
+    # Pattern: Dropdown + Refresh
+    if "dropdown" in group.widgets and "refresh_button" in group.widgets:
+        dropdown = group.widgets["dropdown"]
+        refresh_button = group.widgets["refresh_button"]
+        if isinstance(dropdown, QComboBox) and isinstance(refresh_button, QPushButton):
+            if refresh_button.isEnabled():
+                QTest.mouseClick(refresh_button, Qt.LeftButton)
+                QTest.qWait(100)
 
-        # Pattern: Input + Browse
-        if "input" in group.widgets and "browse_button" in group.widgets:
-            input_field = group.widgets["input"]
-            browse_button = group.widgets["browse_button"]
-            if isinstance(input_field, QLineEdit) and isinstance(browse_button, QPushButton):
-                assert browse_button.isVisible(), \
-                    f"Browse button should be visible for {group.control}"
+    # Pattern: Input + Browse
+    if "input" in group.widgets and "browse_button" in group.widgets:
+        input_field = group.widgets["input"]
+        browse_button = group.widgets["browse_button"]
+        if isinstance(input_field, QLineEdit) and isinstance(browse_button, QPushButton):
+            assert browse_button.isVisible(), \
+                f"Browse button should be visible for {group.control}"
 
-        # FINAL CHECK: Verify no errors occurred during any interactions
-        if error_handler.has_errors():
-            error_summary = error_handler.get_error_summary()
-            raise AssertionError(
-                f"Widget group '{group.section} > {group.control}' caused errors during testing:\n{error_summary}"
-            )
-
-    finally:
-        # ALWAYS remove the handler, even if test failed
-        root_logger.removeHandler(error_handler)
+    # FINAL CHECK: Verify no errors occurred during any interactions
+    if error_handler.has_errors():
+        error_summary = error_handler.get_error_summary()
+        raise AssertionError(
+            f"Widget group '{group.section} > {group.control}' caused errors during testing:\n{error_summary}"
+        )
 
 
 @pytest.mark.plugin_widget_test
@@ -748,10 +763,23 @@ def test_individual_plugin_widgets(plugin_id: str, datalens_app):
     # Ensure plugin is enabled
     original_enabled, _ = ensure_plugins_enabled(datalens_app, [plugin_id])
 
+    # Install error capturing handler
+    # NOTE: Must add to "datalens" logger because it has propagate=False
+    error_handler = ErrorCapturingHandler()
+    datalens_logger = logging.getLogger("datalens")
+    datalens_logger.addHandler(error_handler)
+
     try:
         workspace = create_plugin_workspace(plugin_id, datalens_app)
         if not workspace:
             pytest.skip(f"Plugin {plugin_id} has no workspace")
+
+        # Check if workspace creation caused any errors
+        if error_handler.has_errors():
+            error_summary = error_handler.get_error_summary()
+            raise AssertionError(
+                f"Plugin '{plugin_id}' workspace creation caused errors:\n{error_summary}"
+            )
 
         try:
             workspace.show()
@@ -779,7 +807,7 @@ def test_individual_plugin_widgets(plugin_id: str, datalens_app):
 
             for idx, group in enumerate(groups, start=1):
                 print(f"  Testing: {group.section} > {group.control}")
-                _test_widget_group_interactions(group)
+                _test_widget_group_interactions(group, error_handler)
                 if max_groups and idx >= max_groups:
                     break
 
@@ -790,4 +818,7 @@ def test_individual_plugin_widgets(plugin_id: str, datalens_app):
             workspace.deleteLater()
 
     finally:
+        # Remove error handler
+        datalens_logger.removeHandler(error_handler)
+        # Restore original plugin state
         restore_plugin_state(datalens_app, original_enabled)

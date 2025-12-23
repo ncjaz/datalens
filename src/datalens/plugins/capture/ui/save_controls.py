@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from datalens.api.sharing import CMD_MEDIA_REGISTER
 from datalens.core.logging import get_logger
 from datalens.domain.plugin import PluginId
 from datalens.extensions.images import encode_jpeg
+from datalens.plugins.capture.service import CameraDevice
 
 log = get_logger(__name__)
 
@@ -35,6 +37,9 @@ def current_output_dir_abs(self) -> Path | None:
 
 
 def current_output_dir_rel(self) -> str | None:
+    """
+    Return the chosen output dir as a *project-relative* path, or None.
+    """
     if not bool(self._app_ctx.has_project):
         return None
     base = current_output_dir_abs(self)
@@ -44,7 +49,9 @@ def current_output_dir_rel(self) -> str | None:
         project_root = Path(self._app_ctx.project_root).resolve()  # type: ignore[arg-type]
         rel = base.resolve().relative_to(project_root)
         rel_s = rel.as_posix().strip("/")
-        return rel_s or "capture"
+        if rel_s in {"", ".", "./"}:
+            return "capture"
+        return rel_s
     except Exception:
         return None
 
@@ -80,6 +87,64 @@ def browse_output_dir(self) -> None:
     self._refresh_controls()
 
 
+def _current_camera_name(self) -> str:
+    try:
+        current = self._device_combo.currentData()
+        device = current if isinstance(current, CameraDevice) else None
+    except Exception:
+        device = None
+
+    camera_name = str(getattr(device, "device_id", "") or "camera").strip()
+    return camera_name or "camera"
+
+
+def _write_intrinsics_sidecar_if_needed(self, *, abs_root: Path, camera_name: str, frame, device: CameraDevice | None) -> None:
+    """
+    Best-effort: write `.camera_intrinsics_<camera>.json` once (on first capture).
+    """
+    if not bool(getattr(frame, "intrinsics", None) or getattr(frame, "depth_intrinsics", None)):
+        return
+
+    intrinsics_abs = abs_root / camera_name / f".camera_intrinsics_{camera_name}.json"
+    if intrinsics_abs.exists():
+        return
+
+    def _intr_to_dict(intr) -> dict[str, object]:
+        return {
+            "width": int(intr.width),
+            "height": int(intr.height),
+            "fx": float(intr.fx),
+            "fy": float(intr.fy),
+            "cx": float(intr.cx),
+            "cy": float(intr.cy),
+            "distortion_model": getattr(intr, "distortion_model", None),
+            "distortion_coeffs": list(getattr(intr, "distortion_coeffs", ()) or ()),
+        }
+
+    payload: dict[str, object] = {
+        "camera_name": camera_name,
+        "device_id": getattr(device, "device_id", None) if device is not None else None,
+        "device_kind": getattr(getattr(device, "kind", None), "value", None) if device is not None else None,
+        "display_name": getattr(device, "display_name", None) if device is not None else None,
+        "source_id": str(getattr(frame, "source_id", "")),
+        "timestamp_s": float(getattr(frame, "timestamp_s", 0.0)),
+        "rgb_intrinsics": _intr_to_dict(frame.intrinsics) if getattr(frame, "intrinsics", None) is not None else None,
+        "depth_intrinsics": _intr_to_dict(frame.depth_intrinsics)
+        if getattr(frame, "depth_intrinsics", None) is not None
+        else None,
+    }
+
+    intrinsics_abs.parent.mkdir(parents=True, exist_ok=True)
+    tmp = intrinsics_abs.with_suffix(intrinsics_abs.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    tmp.replace(intrinsics_abs)
+
+    log.info(
+        "Wrote camera intrinsics sidecar",
+        extra={"operation": "capture", "phase": "intrinsics_written", "path": str(intrinsics_abs), "camera_name": camera_name},
+    )
+
+
 def on_capture_clicked(self) -> None:
     frame = self._service.get_latest()
     if frame is None:
@@ -94,9 +159,8 @@ def on_capture_clicked(self) -> None:
 
     abs_root, rel_root = current_output_dir_info(self)
     if abs_root is None:
-        if bool(self._app_ctx.has_project):
-            abs_root = default_output_dir(self)
-            rel_root = current_output_dir_rel(self)
+        abs_root = default_output_dir(self)
+        rel_root = current_output_dir_rel(self)
     if abs_root is None:
         self._publish_status("Choose a capture folder first.")
         return
@@ -107,28 +171,35 @@ def on_capture_clicked(self) -> None:
         if not want_rgb:
             return
 
+    device = None
+    try:
+        current = self._device_combo.currentData()
+        device = current if isinstance(current, CameraDevice) else None
+    except Exception:
+        device = None
+
+    camera_name = _current_camera_name(self)
+
+    rgb = None
     if want_rgb:
         try:
             rgb = frame.rgb.copy()
         except Exception:
             rgb = frame.rgb
-    else:
-        rgb = None
 
+    depth = None
     if want_depth:
         try:
             depth = frame.depth.copy() if getattr(frame, "depth", None) is not None else None
         except Exception:
             depth = getattr(frame, "depth", None)
-    else:
-        depth = None
 
     ts = time.time()
     stamp = time.strftime("%Y%m%d_%H%M%S", time.localtime(ts))
     stem = f"{stamp}_{int(ts*1000)%1000:03d}"
 
-    rgb_abs = (Path(abs_root) / "rgb" / f"{stem}.jpg") if rgb is not None else None
-    depth_abs = (Path(abs_root) / "depth" / f"{stem}.png") if depth is not None else None
+    rgb_abs = (Path(abs_root) / camera_name / "rgb" / f"{camera_name}_{stem}.jpg") if rgb is not None else None
+    depth_abs = (Path(abs_root) / camera_name / "depth" / f"{camera_name}_{stem}.png") if depth is not None else None
 
     log.info(
         "Capturing image",
@@ -136,13 +207,24 @@ def on_capture_clicked(self) -> None:
             "operation": "capture",
             "phase": "save_request",
             "output_dir": str(abs_root),
+            "camera_name": camera_name,
             "save_rgb": bool(rgb_abs is not None),
             "save_depth": bool(depth_abs is not None),
+            "has_project": bool(self._app_ctx.has_project),
         },
     )
-    self._publish_status("Capturing image…")
+    self._publish_status("Capturing image...")
 
     def encode_and_write() -> None:
+        try:
+            _write_intrinsics_sidecar_if_needed(self, abs_root=Path(abs_root), camera_name=camera_name, frame=frame, device=device)
+        except Exception:
+            log.debug(
+                "Failed to write intrinsics sidecar (best-effort)",
+                exc_info=True,
+                extra={"operation": "capture", "phase": "intrinsics_write_error", "camera_name": camera_name},
+            )
+
         if rgb_abs is not None:
             data = encode_jpeg(rgb, quality=92, color_order="rgb")  # type: ignore[arg-type]
             rgb_abs.parent.mkdir(parents=True, exist_ok=True)
@@ -173,51 +255,62 @@ def on_capture_clicked(self) -> None:
             self._publish_status(f"Save failed: {exc}")
             return
 
-        if bool(rel_root) and bool(self._app_ctx.has_project):
+        try:
+            project_root = Path(self._app_ctx.project_root).resolve()  # type: ignore[arg-type]
+        except Exception:
+            project_root = None
+
+        def _register(abs_path: Path) -> str | None:
+            if project_root is None:
+                return None
             try:
-                project_root = Path(self._app_ctx.project_root).resolve()  # type: ignore[arg-type]
+                rel = abs_path.resolve().relative_to(project_root).as_posix()
             except Exception:
-                project_root = None
+                return None
+            try:
+                cmd_fut = self._app_ctx.commands.dispatch(
+                    CMD_MEDIA_REGISTER,
+                    {"relative_path": rel, "source_kind": "capture"},
+                    caller_plugin_id=PluginId("capture"),
+                )
+                cmd_fut.add_done_callback(lambda *_: None)
+            except Exception:
+                log.debug("Failed to dispatch CMD_MEDIA_REGISTER (best-effort)", exc_info=True)
+            return rel
 
-            def _register(abs_path: Path) -> None:
-                if project_root is None:
-                    return
-                try:
-                    rel = abs_path.resolve().relative_to(project_root).as_posix()
-                except Exception:
-                    return
-                try:
-                    cmd_fut = self._app_ctx.commands.dispatch(
-                        CMD_MEDIA_REGISTER,
-                        {"relative_path": rel, "source_kind": "capture"},
-                        caller_plugin_id=PluginId("capture"),
-                    )
-                    cmd_fut.add_done_callback(lambda *_: None)
-                except Exception:
-                    log.debug("Failed to dispatch CMD_MEDIA_REGISTER (best-effort)", exc_info=True)
+        saved_rel: str | None = None
+        if rgb_abs is not None:
+            saved_rel = _register(rgb_abs) or saved_rel
+        if depth_abs is not None:
+            saved_rel = _register(depth_abs) or saved_rel
 
-            if rgb_abs is not None:
-                _register(rgb_abs)
-            if depth_abs is not None:
-                _register(depth_abs)
+        # Hook path: if we didn't register into the project media index (no project),
+        # still provide a stable, relative path under the chosen output folder.
+        hook_rel: str | None = saved_rel
+        if hook_rel is None:
+            try:
+                abs0 = rgb_abs or depth_abs
+                if abs0 is not None:
+                    hook_rel = abs0.resolve().relative_to(Path(abs_root).resolve()).as_posix()
+            except Exception:
+                hook_rel = None
 
         if rgb_abs is not None and depth_abs is not None:
-            self._publish_status(f"Saved: rgb + depth ({stem})")
+            self._publish_status(f"Saved: {camera_name} (rgb + depth)")
         elif rgb_abs is not None:
-            self._publish_status(f"Saved: rgb ({stem})")
+            self._publish_status(f"Saved: {camera_name} (rgb)")
         elif depth_abs is not None:
-            self._publish_status(f"Saved: depth ({stem})")
+            self._publish_status(f"Saved: {camera_name} (depth)")
         else:
             self._publish_status("Saved.")
 
-        if bool(rel_root) and bool(self._app_ctx.has_project):
-            if rgb_abs is not None:
-                try:
-                    project_root = Path(self._app_ctx.project_root).resolve()  # type: ignore[arg-type]
-                    rel = rgb_abs.resolve().relative_to(project_root).as_posix()
-                    self.on_capture_saved(relative_path=rel)
-                except Exception:
-                    pass
+        if hook_rel is not None:
+            try:
+                self.on_capture_saved(relative_path=hook_rel)
+            except Exception:
+                log.debug("Capture post-save hook failed (best-effort)", exc_info=True)
+        elif not bool(self._app_ctx.has_project):
+            self._publish_status("Saved outside a project (not registered).")
 
     fut.add_done_callback(lambda f: self._ui_invoke.invoke.emit(lambda: on_written(f)))
 

@@ -53,6 +53,37 @@ def _coerce_value(field: PreferenceField, value: object) -> object:
     if kind in (PreferenceKind.STRING, PreferenceKind.PATH):
         return str(value)
 
+    if kind == PreferenceKind.COLOR:
+        if not isinstance(value, dict):
+            raise TypeError(f"{field.key} must be an object")
+
+        def _clamp_byte(v: object, *, name: str) -> int:
+            try:
+                iv = int(v)
+            except Exception as exc:
+                raise TypeError(f"{field.key}.{name} must be an int") from exc
+            return max(0, min(255, iv))
+
+        def _clamp_opacity(v: object) -> float:
+            try:
+                fv = float(v)
+            except Exception as exc:
+                raise TypeError(f"{field.key}.opacity must be a number") from exc
+            return max(0.0, min(1.0, fv))
+
+        theme_ref_raw = value.get("theme_reference")
+        theme_ref = str(theme_ref_raw).strip() if isinstance(theme_ref_raw, str) else None
+        if theme_ref == "":
+            theme_ref = None
+
+        return {
+            "r": _clamp_byte(value.get("r", 0), name="r"),
+            "g": _clamp_byte(value.get("g", 0), name="g"),
+            "b": _clamp_byte(value.get("b", 0), name="b"),
+            "opacity": _clamp_opacity(value.get("opacity", 1.0)),
+            "theme_reference": theme_ref,
+        }
+
     return value
 
 

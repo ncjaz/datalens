@@ -306,6 +306,123 @@ QWidget mousePress/Move/Release
 
 ## Why this is performant and non-blocking
 
+- **Non-blocking UI is mandatory**: nothing in this system may block the Qt UI thread.
+  - No file I/O, no DB calls, no model inference, and no large CPU loops in event handlers (`mouseMoveEvent`, `wheelEvent`, etc.).
+  - No heavy work inside `paintEvent` — it must be *pure rendering* of already-prepared data.
+
 - Drawing is fast: only paints cached `QImage/QPixmap` for base + raster overlays and a few vectors.
 - Heavy work (model inference, mask generation, depth colorization) must happen off-thread; the tool/layer just swaps in the latest ready-to-draw frame on the UI thread.
 - Debounced UI updates: tools should coalesce rapid updates (e.g. brush move) into a steady redraw cadence.
+
+## Proposed folder structure (core canvas + tools)
+
+We want the **core canvas** to be usable by any workspace plugin (Capture, Annotation, Review, etc.).
+Then we build **tools** (masking, polygons, selection) on top without turning the core into a monolith.
+
+Principles:
+- Keep the **core canvas widget** small, generic, and stable.
+- Put tool logic in a **tools package** that depends on the core canvas API.
+- Keep heavy computation out of the UI layer (use services/background work and feed results back).
+
+### 1) Core canvas system (app-level)
+
+**Goal**: a reusable `ImageCanvas` widget + small APIs for layers and tools.
+
+Suggested location:
+
+```
+datalens/src/datalens/ui/canvas/
+  __init__.py
+  canvas_widget.py          # ImageCanvas(QWidget): base image + layer rendering + event entrypoint
+  viewport.py               # ViewportTransform: pan/zoom; widget<->image coordinate mapping
+  layers/
+    __init__.py
+    base.py                 # Layer protocol + Hit result dataclasses
+    raster_layer.py         # RasterLayer: draws a QImage/QPixmap with opacity/compose mode
+    vector_layer.py         # VectorLayer base helpers (optional; keep small)
+    debug_layer.py          # Optional: debug overlay (FPS, bounds, hit-test markers)
+  tools/
+    __init__.py
+    base.py                 # Tool protocol + ToolResult + tool capture semantics
+    tool_manager.py         # ToolManager: active tool + routing rules
+  selection/
+    __init__.py
+    router.py               # Default selection router for generic hit-test -> drag/capture behavior
+  adapters/
+    __init__.py
+    qimage_bridge.py        # Helpers to convert numpy<->QImage safely (copy rules)
+```
+
+Why `datalens/ui/canvas`?
+- It’s a UI widget system (Qt types), and many workspaces will use it directly.
+- It keeps the canvas separate from plugin code while still being “core”.
+
+### 2) “Standard tools” package (app-level, built on the core canvas)
+
+**Goal**: a set of reusable, optional tools that many plugins will want.
+This becomes the “V1-like toolbar tools” library.
+
+Suggested location:
+
+```
+datalens/src/datalens/ui/canvas_tools/
+  __init__.py
+  polygon/
+    __init__.py
+    model.py                # Vertex/Edge/Polygon dataclasses (Qt-free if possible)
+    layer.py                # PolygonLayer (vector): draw polygons + handles
+    tool.py                 # PolygonTool: create/edit polygons, add/remove vertices
+  mask/
+    __init__.py
+    model.py                # Mask meta (id, label, color, opacity); pixel data not copied here
+    layer.py                # MaskLayer (raster): draws mask/heatmap
+    paint_tool.py           # PaintTool: brush strokes -> updates MaskLayer
+  common/
+    __init__.py
+    colors.py               # Theme-aware overlay colors (best-effort)
+    snapping.py             # Optional: vertex snapping rules
+```
+
+Notes:
+- Tool “models” should be Qt-free where practical (dataclasses), but it’s fine if vector geometry
+  needs Qt-ish helpers as long as it stays out of services and out of DB layers.
+- If we later decide tools should be plugin-scoped, this package can still exist as the shared default.
+
+### 3) Plugin-local tools (plugin-owned extensions)
+
+Some tools are specific to one plugin (e.g. Capture’s “depth overlay blend”, “edge detect”, “HDR preview”).
+Those should live inside the plugin:
+
+```
+datalens/src/datalens/plugins/capture/
+  tools/
+    __init__.py
+    overlay_depth.py        # Produces raster overlays; uses background work if heavy
+    overlay_edges.py
+    overlay_histogram.py
+```
+
+These tools consume the same core canvas API:
+- they register a layer (raster or vector)
+- they activate/deactivate via the plugin’s toolbar
+- they update their layers when new frames arrive
+
+### 4) Public API surface for plugins
+
+We should expose a stable “plugin-facing” API module (thin re-exports + docs) so plugins don’t
+import deep internal paths:
+
+```
+datalens/src/datalens/api/canvas.py
+  # Re-export ImageCanvas, Layer/Tool protocols, and common layer/tool types we consider stable.
+```
+
+This mirrors how we treat other plugin-facing systems (sharing, commands, shortcuts).
+
+### 5) Persistence + DB integration (future)
+
+The canvas itself should not know about DB or projects.
+Persistence belongs to plugin services (or a shared “annotations persistence” service) that:
+- serializes tool model state (polygons, mask references) into PluginDb
+- loads it on project open and populates layers
+- writes changes via IoWriter/debounced persistence where appropriate

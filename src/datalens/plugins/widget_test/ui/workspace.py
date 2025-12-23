@@ -35,7 +35,9 @@ from datalens.api.ui_commands import (
 
 from .sections import (
     build_buttons_section,
+    build_canvas_section,
     build_checkboxes_section,
+    build_color_picker_section,
     build_icons_section,
     build_loader_test_section,
     build_preferences_demo_section,
@@ -127,6 +129,8 @@ class WorkspaceWidget(QWidget):
         add_section("Toggles", self._toggles_section)
         add_section("Checkboxes", self._checkboxes_section)
         add_section("Icons", self._icons_section)
+        add_section("Canvas", self._canvas_section)
+        add_section("Color Picker", self._color_picker_section)
         add_section("Toast Notifications", self._toast_demo_section)
         add_section("Shortcuts", self._shortcuts_section)
         add_section("Shortcuts Advanced", self._shortcuts_advanced_section)
@@ -203,6 +207,12 @@ class WorkspaceWidget(QWidget):
             on_log_clicked=lambda: self._log.info("Clicked tooltip demo button"),
             count_to_10_binding=count_to_10_binding if isinstance(count_to_10_binding, ShortcutButtonBinding) else None,
         )
+
+    def _canvas_section(self) -> QWidget:
+        return build_canvas_section(self, theme=self._theme)
+
+    def _color_picker_section(self) -> QWidget:
+        return build_color_picker_section(self, theme=self._theme)
 
     def _sharing_section(self) -> QWidget:
         return build_sharing_section(self, theme=self._theme)

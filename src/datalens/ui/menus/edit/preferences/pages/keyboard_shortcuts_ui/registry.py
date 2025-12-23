@@ -34,6 +34,7 @@ class ShortcutRowsBuilder:
         self,
         *,
         result: RebuildResult,
+        show_consume_controls: bool,
         mode_is_keyboard_only: Callable[[object, object], bool],
         on_binding_changed: Callable[[str, str, str, object], None],
         on_binding_reset: Callable[[str, str, str], None],
@@ -44,6 +45,7 @@ class ShortcutRowsBuilder:
         on_mode_reset: Callable[[str, str], None],
     ) -> None:
         self._result = result
+        self._show_consume_controls = bool(show_consume_controls)
         self._mode_is_keyboard_only = mode_is_keyboard_only
         self._on_binding_changed = on_binding_changed
         self._on_binding_reset = on_binding_reset
@@ -82,9 +84,12 @@ class ShortcutRowsBuilder:
             editor.set_reset_enabled(bool(is_overridden))
         except Exception:
             pass
-        consume = QCheckBox("Consume", section_box)
-        consume.setChecked(bool(consume_event))
-        consume_reset = QPushButton("Reset consume", section_box)
+        consume: QCheckBox | None = None
+        consume_reset: QPushButton | None = None
+        if self._show_consume_controls:
+            consume = QCheckBox("Consume", section_box)
+            consume.setChecked(bool(consume_event))
+            consume_reset = QPushButton("Reset consume", section_box)
 
         row = QWidget(section_box)
         row_layout = QHBoxLayout(row)
@@ -109,6 +114,11 @@ class ShortcutRowsBuilder:
                 mode_reset = QPushButton("Reset mode", section_box)
                 mode_toggle.setToolTip("Choose whether this command behaves as Hold or Toggle.")
                 mode_reset.setToolTip("Reset Hold/Toggle mode to the command default.")
+                try:
+                    mode_toggle.set_size("tiny")
+                    mode_toggle.apply_theme(theme)
+                except Exception:
+                    pass
                 row_layout.addWidget(mode_toggle, 0)
                 row_layout.addWidget(mode_reset, 0)
 
@@ -122,25 +132,31 @@ class ShortcutRowsBuilder:
                 mode_reset.clicked.connect(lambda *_: self._on_mode_reset(plugin_id, command_id))
 
         row_layout.addWidget(QLabel(f"[{scope}]", section_box), 0)
-        row_layout.addWidget(consume, 0)
-        row_layout.addWidget(consume_reset, 0)
+        if consume is not None and consume_reset is not None:
+            row_layout.addWidget(consume, 0)
+            row_layout.addWidget(consume_reset, 0)
 
         tooltip = (((str(description) + "\n\n") if description else "") + f"Scope: {scope}\nDefault: {default_chord or 'Unbound'}")
         editor.setToolTip(tooltip)
-        consume.setToolTip("If enabled, the matching Qt input event will not reach the widget.")
-        consume_reset.setToolTip("Reset consume_event to the command default.")
+        if consume is not None and consume_reset is not None:
+            consume.setToolTip("If enabled, the matching Qt input event will not reach the widget.")
+            consume_reset.setToolTip("Reset consume_event to the command default.")
 
         self._result.editors[key] = editor
-        self._result.consume_checks[key] = consume
-        self._result.consume_reset_buttons[key] = consume_reset
+        if consume is not None and consume_reset is not None:
+            self._result.consume_checks[key] = consume
+            self._result.consume_reset_buttons[key] = consume_reset
         self._result.binding_scopes[key] = scope
         self._result.last_saved[key] = str(effective_chord).strip() if isinstance(effective_chord, str) else None
 
         editor.chordChanged.connect(lambda chord, pid=plugin_id, cid=command_id: self._on_binding_changed(pid, "command", cid, chord))
         editor.resetRequested.connect(lambda pid=plugin_id, cid=command_id: self._on_binding_reset(pid, "command", cid))
         editor.recordingChanged.connect(lambda active: self._on_recording_changed(bool(active)))
-        consume.toggled.connect(lambda checked, pid=plugin_id, cid=command_id: self._on_consume_changed(pid, "command", cid, bool(checked)))
-        consume_reset.clicked.connect(lambda *_: self._on_consume_reset(plugin_id, "command", command_id))
+        if consume is not None and consume_reset is not None:
+            consume.toggled.connect(
+                lambda checked, pid=plugin_id, cid=command_id: self._on_consume_changed(pid, "command", cid, bool(checked))
+            )
+            consume_reset.clicked.connect(lambda *_: self._on_consume_reset(plugin_id, "command", command_id))
 
         section_layout.addRow(label, row)
 
@@ -175,9 +191,12 @@ class ShortcutRowsBuilder:
                 editor.set_reset_enabled(bool(is_overridden))
             except Exception:
                 pass
-        consume = QCheckBox("Consume", section_box)
-        consume.setChecked(bool(consume_event))
-        consume_reset = QPushButton("Reset consume", section_box)
+        consume: QCheckBox | None = None
+        consume_reset: QPushButton | None = None
+        if self._show_consume_controls:
+            consume = QCheckBox("Consume", section_box)
+            consume.setChecked(bool(consume_event))
+            consume_reset = QPushButton("Reset consume", section_box)
 
         row = QWidget(section_box)
         row_layout = QHBoxLayout(row)
@@ -200,21 +219,24 @@ class ShortcutRowsBuilder:
                 reset_btn.clicked.connect(lambda *_: self._on_binding_reset(plugin_id, "gesture", gesture_id))
                 row_layout.addWidget(reset_btn, 0)
         row_layout.addWidget(QLabel(f"[{scope}]", section_box), 0)
-        row_layout.addWidget(consume, 0)
-        row_layout.addWidget(consume_reset, 0)
+        if consume is not None and consume_reset is not None:
+            row_layout.addWidget(consume, 0)
+            row_layout.addWidget(consume_reset, 0)
 
         tooltip = (
             ((str(description) + "\n\n") if description else "")
             + f"Scope: {scope}\nDefault: {default_chord or 'Unbound'}\n(begin chord)"
         )
         editor.setToolTip(tooltip)
-        consume.setToolTip("If enabled, the widget can stop the mouse event from reaching other handlers.")
-        consume_reset.setToolTip("Reset consume_event to the gesture default.")
+        if consume is not None and consume_reset is not None:
+            consume.setToolTip("If enabled, the widget can stop the mouse event from reaching other handlers.")
+            consume_reset.setToolTip("Reset consume_event to the gesture default.")
 
         key: BindingKey = (plugin_id, "gesture", gesture_id)
         self._result.editors[key] = editor
-        self._result.consume_checks[key] = consume
-        self._result.consume_reset_buttons[key] = consume_reset
+        if consume is not None and consume_reset is not None:
+            self._result.consume_checks[key] = consume
+            self._result.consume_reset_buttons[key] = consume_reset
         self._result.binding_scopes[key] = scope
         self._result.last_saved[key] = str(effective_chord).strip() if isinstance(effective_chord, str) else None
 
@@ -224,8 +246,11 @@ class ShortcutRowsBuilder:
                 lambda pid=plugin_id, gid=gesture_id: self._on_binding_reset(pid, "gesture", gid)
             )
         editor.recordingChanged.connect(lambda active: self._on_recording_changed(bool(active)))
-        consume.toggled.connect(lambda checked, pid=plugin_id, gid=gesture_id: self._on_consume_changed(pid, "gesture", gid, bool(checked)))
-        consume_reset.clicked.connect(lambda *_: self._on_consume_reset(plugin_id, "gesture", gesture_id))
+        if consume is not None and consume_reset is not None:
+            consume.toggled.connect(
+                lambda checked, pid=plugin_id, gid=gesture_id: self._on_consume_changed(pid, "gesture", gid, bool(checked))
+            )
+            consume_reset.clicked.connect(lambda *_: self._on_consume_reset(plugin_id, "gesture", gesture_id))
 
         section_layout.addRow(label, row)
 

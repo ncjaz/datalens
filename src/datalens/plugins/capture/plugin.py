@@ -28,7 +28,7 @@ class CapturePlugin(ProjectAwarePlugin):
 
     Contract:
     - Preview can run with no project open.
-    - Saving/registering requires an open project (gated in UI).
+    - Saving works without a project; media index registration requires an open project.
     """
 
     def __init__(self) -> None:

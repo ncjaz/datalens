@@ -223,7 +223,7 @@ def rebuild_webcam_settings_from_specs(self, specs: tuple[CameraOptionSpec, ...]
         btn.setObjectName("CaptureAutoOptionButton")
         def update_icon(checked_state: bool) -> None:
             bg = self._theme.confirm_color if checked_state else self._theme.cancel_color
-            btn.setIcon(auto_icon(self._theme, size=18, background_color=bg))
+            btn.setIcon(auto_icon(self._theme, size=btn.iconSize().width(), background_color=bg))
 
         def update_tooltip(checked_state: bool) -> None:
             state = "Enabled" if checked_state else "Disabled"

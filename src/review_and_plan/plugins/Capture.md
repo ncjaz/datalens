@@ -158,6 +158,24 @@ Saving must be non-blocking:
   - project-scoped capture output under project root (preferred)
   - user-scoped cache for “no project open” (optional, document)
 
+#### Output folder structure + intrinsics sidecar (v0)
+
+Capture output is grouped by camera name:
+
+- `<capture_root>/<camera_name>/rgb/<camera_name>_<timestamp>.jpg`
+- `<capture_root>/<camera_name>/depth/<camera_name>_<timestamp>.png` (RealSense only)
+
+On the first capture for a given camera, write a best-effort dotfile (once):
+
+- `<capture_root>/.camera_intrinsics_<camera_name>.json`
+
+The payload includes `rgb_intrinsics` and, if available, `depth_intrinsics`.
+
+Notes:
+
+- Depth intrinsics may differ from RGB intrinsics (RealSense has separate stream intrinsics and usually extrinsics between streams).
+- If intrinsics are unavailable (typical for webcams), the file is not created.
+
 ### Post-save hook (reserved)
 
 Add an internal function/entrypoint (can be a no-op initially) that is invoked after the plugin

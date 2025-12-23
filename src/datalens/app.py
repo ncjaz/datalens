@@ -40,6 +40,12 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="Dump UI diagnostics (top-level widgets + active QTimers) after startup.",
     )
+    parser.add_argument(
+        "-d",
+        "--dev",
+        action="store_true",
+        help="Enable developer-mode UI (shows advanced controls like consume-event toggles).",
+    )
     logging_group = parser.add_mutually_exclusive_group()
     logging_group.add_argument(
         "--log-to-file",
@@ -150,6 +156,10 @@ def main(argv: list[str] | None = None) -> int:
 
     theme = AppTheme()
     app = DatalensApplication(argv, theme=theme, slow_event_threshold_ms=args.slow_event_threshold_ms)
+    try:
+        app.app_context.dev_mode = bool(getattr(args, "dev", False))
+    except Exception:
+        log.debug("Failed to set dev mode on AppContext (best-effort)", exc_info=True)
     plugin_host: PluginHost | None = None
     plugin_records: tuple[PluginRecord, ...] = ()
 

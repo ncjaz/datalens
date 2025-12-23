@@ -7,6 +7,15 @@ _SETTING_SCAN_MODE = "scan_mode"
 _DEFAULT_SCAN_MODE = "manual"  # Start in manual (one-shot) mode
 _CAPTURE_PLUGIN_ID = PluginId(_CAPTURE_PLUGIN_SETTINGS_KEY)
 
+# Preview border preferences
+_SETTING_PREVIEW_BORDER_OFF_COLOR = "preview_border_off_color"
+_SETTING_PREVIEW_BORDER_ON_COLOR = "preview_border_on_color"
+_SETTING_PREVIEW_BORDER_CAPTURE_COLOR = "preview_border_capture_color"
+_SETTING_PREVIEW_BORDER_CAPTURE_FADE_MS = "preview_border_capture_fade_ms"
+
+# Capture save options (stored at plugin root level).
+_SETTING_SAVE_DEPTH = "save_depth"
+
 # Per-device settings keys (stored as "devices/{device_id}/{setting}")
 _SETTING_COLORMAP = "colormap"
 _SETTING_DEPTH_ALIGNMENT = "depth_alignment"
@@ -26,6 +35,11 @@ __all__ = [
     "_DEFAULT_COLORMAP",
     "_DEFAULT_DEPTH_ALIGNMENT",
     "_DEFAULT_SCAN_MODE",
+    "_SETTING_PREVIEW_BORDER_CAPTURE_COLOR",
+    "_SETTING_PREVIEW_BORDER_CAPTURE_FADE_MS",
+    "_SETTING_PREVIEW_BORDER_OFF_COLOR",
+    "_SETTING_PREVIEW_BORDER_ON_COLOR",
+    "_SETTING_SAVE_DEPTH",
     "_SETTING_COLORMAP",
     "_SETTING_DEPTH_ALIGNMENT",
     "_SETTING_RS_FPS",
@@ -33,4 +47,3 @@ __all__ = [
     "_SETTING_RS_RESOLUTION",
     "_SETTING_SCAN_MODE",
 ]
-

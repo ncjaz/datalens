@@ -21,6 +21,7 @@ def rebuild_shortcuts_ui(
     conflicts_label: QLabel,
     snap: object,
     filter_key: str | None,
+    show_consume_controls: bool,
     mode_is_keyboard_only: Callable[[object, object], bool],
     on_binding_changed: Callable[[str, str, str, object], None],
     on_binding_reset: Callable[[str, str, str], None],
@@ -83,6 +84,7 @@ def rebuild_shortcuts_ui(
 
     rows = ShortcutRowsBuilder(
         result=result,
+        show_consume_controls=show_consume_controls,
         mode_is_keyboard_only=mode_is_keyboard_only,
         on_binding_changed=on_binding_changed,
         on_binding_reset=on_binding_reset,

@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
-from PySide6.QtWidgets import QApplication, QHBoxLayout, QLineEdit, QPushButton, QWidget
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QPushButton, QWidget
 
 from datalens.ui.shortcuts.chords import event_to_chord, to_int
 
@@ -56,20 +56,18 @@ class ShortcutBindingEditor(QWidget):
         super().__init__(parent)
         self._capture_filter: _CaptureNextChordFilter | None = None
         self._recording = False
+        self._chord: str | None = None
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
 
-        self._edit = QLineEdit(self)
-        self._edit.setReadOnly(True)
-        self._edit.setPlaceholderText("Unbound")
-        self._edit.setMinimumWidth(180)
-        layout.addWidget(self._edit, 1)
-
-        self._record_btn = QPushButton("Record...", self)
-        self._record_btn.clicked.connect(self._toggle_record)  # type: ignore[arg-type]
-        layout.addWidget(self._record_btn, 0)
+        # V1-style compact binding UI: a single button shows the current chord and
+        # is clicked to (re)bind. This avoids a wide, read-only text field.
+        self._bind_btn = QPushButton(self)
+        self._bind_btn.setMinimumWidth(120)
+        self._bind_btn.clicked.connect(self._toggle_record)  # type: ignore[arg-type]
+        layout.addWidget(self._bind_btn, 0)
 
         self._clear_btn = QPushButton("Clear", self)
         self._clear_btn.clicked.connect(self._clear)  # type: ignore[arg-type]
@@ -84,8 +82,7 @@ class ShortcutBindingEditor(QWidget):
         self.set_chord(initial, emit_signal=False)
 
     def chord(self) -> str | None:
-        text = self._edit.text().strip()
-        return text or None
+        return self._chord
 
     def is_recording(self) -> bool:
         return bool(self._recording)
@@ -101,9 +98,10 @@ class ShortcutBindingEditor(QWidget):
             self._reset_btn.setEnabled(bool(enabled))
 
     def set_chord(self, chord: str | None, *, emit_signal: bool = True) -> None:
-        self._edit.setText(chord or "")
+        self._chord = chord.strip() if isinstance(chord, str) and chord.strip() else None
+        self._bind_btn.setText(self._chord or "Set…")
         if emit_signal:
-            self.chordChanged.emit(chord)
+            self.chordChanged.emit(self._chord)
 
     def _clear(self) -> None:
         self.set_chord(None)
@@ -124,10 +122,9 @@ class ShortcutBindingEditor(QWidget):
             app.setProperty("datalens.shortcuts.capture_active", True)
         except Exception:
             pass
-        self._record_btn.setText("Press a key...")
-        self._record_btn.setEnabled(False)
+        self._bind_btn.setText("Press a key…")
+        self._bind_btn.setEnabled(False)
         self._clear_btn.setEnabled(False)
-        self._edit.setPlaceholderText("Recording... (Esc to cancel)")
 
         def on_captured(chord: str | None) -> None:
             self._stop_record(cancel=False)
@@ -139,7 +136,7 @@ class ShortcutBindingEditor(QWidget):
         app.installEventFilter(self._capture_filter)
 
         # Re-enable the button after the event loop tick so the UI updates.
-        self._record_btn.setEnabled(True)
+        self._bind_btn.setEnabled(True)
 
     def _stop_record(self, *, cancel: bool) -> None:
         app = QApplication.instance()
@@ -156,10 +153,9 @@ class ShortcutBindingEditor(QWidget):
         self._capture_filter = None
         self._recording = False
         self.recordingChanged.emit(False)
-        self._record_btn.setText("Record...")
-        self._record_btn.setEnabled(True)
+        self._bind_btn.setText(self._chord or "Set…")
+        self._bind_btn.setEnabled(True)
         self._clear_btn.setEnabled(True)
-        self._edit.setPlaceholderText("Unbound")
         if cancel:
             return
 

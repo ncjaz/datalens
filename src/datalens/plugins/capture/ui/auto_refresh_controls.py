@@ -12,7 +12,15 @@ from datalens.ui.widgets.core.modifier_click import ModifierClickAction, Modifie
 from datalens.ui.widgets.icons.animated.refresh import RefreshAnimator
 
 from ..ids import CAPTURE_GESTURE_AUTO_REFRESH_DEFAULT_CHORD, CAPTURE_GESTURE_AUTO_REFRESH_TOGGLE
-from .workspace_constants import _CAPTURE_PLUGIN_ID, _DEFAULT_SCAN_MODE, _SETTING_SCAN_MODE
+from .workspace_constants import (
+    _CAPTURE_PLUGIN_ID,
+    _DEFAULT_SCAN_MODE,
+    _SETTING_PREVIEW_BORDER_CAPTURE_COLOR,
+    _SETTING_PREVIEW_BORDER_CAPTURE_FADE_MS,
+    _SETTING_PREVIEW_BORDER_OFF_COLOR,
+    _SETTING_PREVIEW_BORDER_ON_COLOR,
+    _SETTING_SCAN_MODE,
+)
 
 log = get_logger(__name__)
 
@@ -70,6 +78,19 @@ def on_preferences_changed(self, keys: set[str]) -> None:
                 sync_auto_refresh_from_sources(self, immediate=True)
         except Exception:
             log.debug("Failed to apply scan mode preference (best-effort)", exc_info=True)
+
+    if keys.intersection(
+        {
+            _SETTING_PREVIEW_BORDER_OFF_COLOR,
+            _SETTING_PREVIEW_BORDER_ON_COLOR,
+            _SETTING_PREVIEW_BORDER_CAPTURE_COLOR,
+            _SETTING_PREVIEW_BORDER_CAPTURE_FADE_MS,
+        }
+    ):
+        try:
+            self._refresh_border()
+        except Exception:
+            pass
 
 
 def desired_auto_refresh_enabled(self) -> bool:
@@ -329,4 +350,3 @@ __all__ = [
     "sync_auto_refresh_from_sources",
     "update_refresh_tooltip",
 ]
-

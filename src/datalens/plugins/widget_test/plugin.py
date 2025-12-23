@@ -333,6 +333,15 @@ class WidgetTestPlugin(BasePlugin):
                             consume_event=True,
                         ),
                         ShortcutCommandSpec(
+                            command_id=ShortcutCommandId("canvas_delete_vertex"),
+                            title="Canvas: delete selected vertex",
+                            description="Deletes the currently selected vertex in the Widget Test canvas demo.",
+                            default_chord="Del",
+                            scope=ShortcutScope.WORKSPACE,
+                            allow_in_text_inputs=False,
+                            consume_event=True,
+                        ),
+                        ShortcutCommandSpec(
                             command_id=ShortcutCommandId("conflict_a"),
                             title="Conflict demo A",
                             description="Deliberate conflict: shares the same default chord as Conflict demo B.",
@@ -401,6 +410,7 @@ class WidgetTestPlugin(BasePlugin):
                 "consume_click": self._shortcut_consume_click,
                 "conflict_a": self._shortcut_conflict_a,
                 "conflict_b": self._shortcut_conflict_b,
+                "canvas_delete_vertex": self._shortcut_canvas_delete_vertex,
             },
         )
 
@@ -479,6 +489,21 @@ class WidgetTestPlugin(BasePlugin):
     def _shortcut_conflict_b(self) -> None:
         with bind_log_context(plugin_id=str(self.plugin_id), operation="shortcuts", phase="conflict_b"):
             log.info("Conflict demo B fired")
+
+    def _shortcut_canvas_delete_vertex(self) -> None:
+        with bind_log_context(plugin_id=str(self.plugin_id), operation="canvas", phase="delete_vertex"):
+            try:
+                from datalens.plugins.widget_test.ui.sections.canvas import delete_selected_vertex_from_shortcut
+
+                changed = bool(delete_selected_vertex_from_shortcut())
+            except Exception:
+                log.warning("Canvas delete shortcut failed (best-effort)", exc_info=True)
+                changed = False
+
+            if changed:
+                log.info("Deleted selected vertex")
+            else:
+                log.debug("Delete pressed with no selected vertex (or canvas not active)")
 
     def create_workspace_widget(self, parent, ctx: PluginAppContext):
         """

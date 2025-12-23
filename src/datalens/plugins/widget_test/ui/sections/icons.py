@@ -11,6 +11,7 @@ from datalens.ui.widgets.icons.annotation_toggle_icon import annotation_toggle_i
 from datalens.ui.widgets.icons.auto_icon import auto_icon
 from datalens.ui.widgets.icons.autodiscovery_icon import autodiscovery_icon
 from datalens.ui.widgets.icons.chevron_icon import chevron_icon
+from datalens.ui.widgets.icons.clear_icon import clear_icon
 from datalens.ui.widgets.icons.error_icon import error_icon
 from datalens.ui.widgets.icons.eye_icon import eye_icon
 from datalens.ui.widgets.icons.info_icon import info_icon
@@ -47,6 +48,7 @@ def build_icons_section(
         ("Refresh (themed)", refresh_icon(theme, size=24)),
         ("Refresh (Animated)", refresh_icon(theme, size=24)),
         ("Reset (V2)", reset_icon(theme, size=24)),
+        ("Clear (V2)", clear_icon(theme, size=24, mirror=True)),
         ("AUTO (V2)", auto_icon(theme, size=24)),
         ("Chevron Up (V1)", chevron_icon(theme, direction="up", size=24)),
         ("Chevron Down (V1)", chevron_icon(theme, direction="down", size=24)),

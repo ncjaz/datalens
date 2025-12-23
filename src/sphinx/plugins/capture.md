@@ -75,6 +75,19 @@ On “Save image”:
 
 The media index record type is `MediaFileRecord` in `datalens/domain/system/media_index.py`.
 
+### Output folder structure + intrinsics sidecar (v0)
+
+Saved images are grouped by camera name under the chosen capture root:
+
+- `<capture_root>/<camera_name>/rgb/<camera_name>_<timestamp>.jpg`
+- `<capture_root>/<camera_name>/depth/<camera_name>_<timestamp>.png` (if depth is available)
+
+On first capture for a camera (best-effort), the plugin writes:
+
+- `<capture_root>/.camera_intrinsics_<camera_name>.json`
+
+This JSON includes both RGB and depth intrinsics when available. Depth intrinsics may differ from RGB intrinsics.
+
 ## OpenCV backend configuration (cross-platform)
 
 OpenCV camera enumeration/opening behaves differently across platforms and backends, and some backends

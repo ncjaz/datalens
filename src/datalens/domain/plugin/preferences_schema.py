@@ -25,6 +25,7 @@ class PreferenceKind(str, Enum):
     FLOAT = "float"
     STRING = "string"
     PATH = "path"
+    COLOR = "color"
 
 
 class PathKind(str, Enum):

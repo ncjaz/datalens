@@ -615,7 +615,13 @@ class CaptureService:
         except Exception:
             return False
 
-    def enumerate_devices(self, *, max_indices: int = 8) -> list[CameraDevice]:
+    def enumerate_devices(
+        self,
+        *,
+        max_indices: int = 8,
+        mode: Literal["indices", "probe"] | None = None,
+        probe_timeout_s: float | None = None,
+    ) -> list[CameraDevice]:
         """
         Best-effort device enumeration.
 
@@ -630,7 +636,7 @@ class CaptureService:
         Default behaviour: return a small list of candidate indices (0..N-1)
         without probing. The user selects an index and we try to start capture.
 
-        Optional: set `DATALENS_CAPTURE_ENUMERATION_MODE=probe` to enable the
+        Optional: set `mode="probe"` or `DATALENS_CAPTURE_ENUMERATION_MODE=probe` to enable the
         slower open-based probing mode for diagnostics.
         """
         out: list[CameraDevice] = []
@@ -656,10 +662,13 @@ class CaptureService:
             # pyrealsense2 not installed or enumeration failed.
             pass
 
-        # Default to "indices": list candidate webcam indices without opening
-        # devices. Probing by opening can be slow/noisy and can blink device LEDs.
-        mode = os.environ.get("DATALENS_CAPTURE_ENUMERATION_MODE", "indices").strip().lower()
-        if mode != "probe":
+        # Default to "indices": list candidate webcam indices without opening devices.
+        # Probing by opening can be slow/noisy and can blink device LEDs.
+        mode_val = (str(mode).strip().lower() if mode is not None else "") or os.environ.get(
+            "DATALENS_CAPTURE_ENUMERATION_MODE",
+            "indices",
+        ).strip().lower()
+        if mode_val != "probe":
             # Webcams via candidate indices (no probing).
             for idx in range(max(0, int(max_indices))):
                 out.append(
@@ -675,7 +684,7 @@ class CaptureService:
                 extra={
                     "operation": "capture",
                     "phase": "enumerate",
-                    "mode": mode,
+                    "mode": mode_val,
                     "count": len(out),
                     "max_indices": int(max_indices),
                 },
@@ -692,10 +701,16 @@ class CaptureService:
             )
             return out
 
-        try:
-            timeout_s = float(os.environ.get("DATALENS_CAPTURE_PROBE_TIMEOUT_S", "3.0"))
-        except Exception:
-            timeout_s = 3.0
+        if probe_timeout_s is None:
+            try:
+                timeout_s = float(os.environ.get("DATALENS_CAPTURE_PROBE_TIMEOUT_S", "3.0"))
+            except Exception:
+                timeout_s = 3.0
+        else:
+            try:
+                timeout_s = max(0.05, float(probe_timeout_s))
+            except Exception:
+                timeout_s = 3.0
 
         for idx in range(max(0, int(max_indices))):
             if self._probe_device_index(device_index=idx, timeout_s=timeout_s):
@@ -712,7 +727,7 @@ class CaptureService:
             extra={
                 "operation": "capture",
                 "phase": "enumerate",
-                "mode": mode,
+                "mode": mode_val,
                 "count": len(out),
                 "max_indices": int(max_indices),
             },
@@ -1196,6 +1211,7 @@ class CaptureService:
                     rgb=rgb,
                     depth=None,
                     intrinsics=None,
+                    depth_intrinsics=None,
                     timestamp_s=time.time(),
                     source_id=f"webcam:{idx}",
                 )
@@ -1474,6 +1490,7 @@ class CaptureService:
                             depth = None
 
                 intr = None
+                depth_intr = None
                 try:
                     vsp = color_frame.profile.as_video_stream_profile()
                     i = vsp.get_intrinsics()
@@ -1490,10 +1507,33 @@ class CaptureService:
                 except Exception:
                     intr = None
 
+                if depth is not None:
+                    try:
+                        dframe2 = frames.get_depth_frame()
+                    except Exception:
+                        dframe2 = None
+                    if dframe2:
+                        try:
+                            vsp_d = dframe2.profile.as_video_stream_profile()
+                            idd = vsp_d.get_intrinsics()
+                            depth_intr = CameraIntrinsics(
+                                width=int(idd.width),
+                                height=int(idd.height),
+                                fx=float(idd.fx),
+                                fy=float(idd.fy),
+                                cx=float(idd.ppx),
+                                cy=float(idd.ppy),
+                                distortion_model=str(getattr(idd, "model", "")) or None,
+                                distortion_coeffs=tuple(float(x) for x in getattr(idd, "coeffs", []) or ()),
+                            )
+                        except Exception:
+                            depth_intr = None
+
                 bundle = FrameBundle(
                     rgb=rgb,
                     depth=depth,
                     intrinsics=intr,
+                    depth_intrinsics=depth_intr,
                     timestamp_s=time.time(),
                     source_id=f"realsense:{serial}",
                 )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from PySide6.QtCore import QObject, QTimer, Signal, Slot
 from PySide6.QtWidgets import QFormLayout, QLabel, QWidget
 
@@ -8,7 +9,7 @@ from datalens.core.logging import get_logger
 from datalens.ui.theme.app_theme import AppTheme
 
 from . import auto_refresh_controls, depth_controls, device_controls, device_preferences, realsense_controls, save_controls, webcam_controls
-from .workspace_constants import _CAPTURE_PLUGIN_ID, _DEFAULT_SCAN_MODE, _SETTING_SCAN_MODE
+from .workspace_constants import _CAPTURE_PLUGIN_ID, _DEFAULT_SCAN_MODE, _SETTING_SAVE_DEPTH, _SETTING_SCAN_MODE
 from .workspace_ui import CaptureWorkspaceUi
 
 from ..service import CameraDevice, CameraKind, CameraOptionSpec, CaptureService, RealSenseColorProfile
@@ -47,6 +48,7 @@ class CaptureWorkspaceWidget(CaptureWorkspaceUi):
         self._device_ids: tuple[str, ...] = ()
         self._auto_refresh_enabled = False  # Start in manual mode (one-shot scanning)
         self._scan_mode = _DEFAULT_SCAN_MODE
+        self._save_depth_pref_present = False
         self._auto_refresh_override: bool | None = None
         self._refresh_animator: RefreshAnimator | None = None
         self._refresh_min_spin_ms = 0
@@ -58,6 +60,8 @@ class CaptureWorkspaceWidget(CaptureWorkspaceUi):
         self._ui_invoke = _UiInvoke(self)
         self._prefs_unsub: Callable[[], None] | None = None
         self._shortcuts_unsub: Callable[[], None] | None = None
+        self._preview_border_override_color = None
+        self._preview_border_fade_anim = None
 
         # ------------------------------------------------------------------
         # UI (built in `workspace_ui.py` to keep this controller small)
@@ -88,7 +92,8 @@ class CaptureWorkspaceWidget(CaptureWorkspaceUi):
         self._device_refresh_timer = QTimer(self)
         self._device_refresh_timer.setInterval(2500)
         self._device_refresh_timer.timeout.connect(self._maybe_refresh_devices)
-        self._device_refresh_timer.start()
+        # Start/stop is controlled by the auto-refresh state so we don't wake
+        # a timer every 2.5s when auto-refresh is disabled.
 
         self._load_user_preferences()
         self._subscribe_shortcuts()
@@ -99,6 +104,21 @@ class CaptureWorkspaceWidget(CaptureWorkspaceUi):
         self._populate_devices_async(show_scanning=True)
         self._refresh_controls()
         self._refresh_border()
+
+    def _on_save_format_toggled(self, option_id: str, checked: bool) -> None:
+        option = str(option_id)
+        if option == "depth":
+            self._save_depth_pref_present = True
+            self._save_user_preference(_SETTING_SAVE_DEPTH, bool(checked))
+            log.debug(
+                "Save depth preference updated",
+                extra={
+                    "operation": "capture",
+                    "phase": "prefs_set_save_depth",
+                    "checked": bool(checked),
+                },
+            )
+        self._refresh_controls()
 
     def _set_refresh_button_accent(self, *, scanning: bool) -> None:
         return auto_refresh_controls.set_refresh_button_accent(self, scanning=scanning)
@@ -136,8 +156,13 @@ class CaptureWorkspaceWidget(CaptureWorkspaceUi):
     def _load_user_preferences(self) -> None:
         try:
             prefs = self._app_ctx.preferences
+            raw = prefs.get_plugin_raw(_CAPTURE_PLUGIN_ID)
             raw_scan_mode = prefs.get(_CAPTURE_PLUGIN_ID, _SETTING_SCAN_MODE, default=_DEFAULT_SCAN_MODE)
             self._scan_mode = str(raw_scan_mode) if raw_scan_mode in ("manual", "auto") else _DEFAULT_SCAN_MODE
+
+            if _SETTING_SAVE_DEPTH in raw:
+                self._save_depth_pref_present = True
+                self._save_formats.set_checked("depth", bool(raw.get(_SETTING_SAVE_DEPTH)), emit=False)
         except Exception:
             log.debug("Failed to load capture plugin settings (best-effort)", exc_info=True)
 
@@ -246,6 +271,10 @@ class CaptureWorkspaceWidget(CaptureWorkspaceUi):
 
         Reserved for future use (e.g. syncing/transfer hooks). Keep it fast.
         """
+        try:
+            device_controls.flash_capture_border(self)
+        except Exception:
+            log.debug("Failed to flash capture border (best-effort)", exc_info=True)
         return
 
     # ------------------------------------------------------------------
