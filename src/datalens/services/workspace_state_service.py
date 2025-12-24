@@ -5,7 +5,11 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Callable
 
+from datalens.core.logging import get_logger
 from datalens.domain.system.workspace_state import WorkspaceStateSnapshot
+from datalens.domain.system.system_info import SystemInfoSnapshot
+
+log = get_logger(__name__)
 
 
 WorkspaceStateListener = Callable[[WorkspaceStateSnapshot], None]
@@ -42,6 +46,9 @@ class WorkspaceStateService:
     def set_active_item_id(self, item_id: str | None) -> None:
         self._update(lambda s: replace(s, active_item_id=item_id))
 
+    def set_system_info(self, system_info: SystemInfoSnapshot | None) -> None:
+        self._update(lambda s: replace(s, system_info=system_info))
+
     def subscribe(self, listener: WorkspaceStateListener) -> Callable[[], None]:
         with self._lock:
             self._listeners.append(listener)
@@ -73,5 +80,4 @@ class WorkspaceStateService:
             try:
                 fn(snapshot)  # type: ignore[arg-type]
             except Exception:
-                # Best-effort; listeners should handle their own errors.
-                continue
+                log.debug("WorkspaceState listener failed (best-effort)", exc_info=True)

@@ -11,6 +11,9 @@ class ThemeSettings:
     Naming intent:
     - ``background_color``: foundation colour used for the Qt palette Window role.
     - ``secondary_color``: secondary brand accent (not the window background).
+    - ``background_secondary_color``: optional secondary window surface colour for
+      UI chrome (menu/status bars, tool strips) that should visually separate
+      from the main window background.
 
     Optional surface overrides:
     When unset (None), UI should derive them from ``background_color`` so the
@@ -34,6 +37,8 @@ class ThemeSettings:
     accent_confirm_border: str
     accent_cancel_border: str
     accent_warning_border: str
+
+    background_secondary_color: str | None = None
 
     surface_base: str | None = None
     surface_button: str | None = None
@@ -74,6 +79,9 @@ class ThemeOpacitySettings:
 DEFAULT_THEME = ThemeSettings(
     primary_color="#F9A826",
     background_color="#10141C",
+    # Leave unset by default: the UI derives this from `background_color` so the
+    # palette stays coherent, but it can be overridden for stronger separation.
+    background_secondary_color="#161B27",
     secondary_color="#7a07f4",
     tertiary_color="#00BCD4",
     text_color="#F5F9FF",

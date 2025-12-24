@@ -46,6 +46,64 @@ def format_modifiers(mods: Qt.KeyboardModifiers) -> list[str]:
     return parts
 
 
+def chord_to_modifiers(chord: str) -> Qt.KeyboardModifiers:
+    """
+    Parse a chord string and return the Qt keyboard modifiers it requires.
+
+    This is intended for UI-local "modifier-click" helpers that need to match
+    held modifiers against a stored chord like `Shift+LeftClick`.
+    """
+    raw = str(chord or "").strip()
+    if not raw:
+        return Qt.NoModifier
+    mods = Qt.KeyboardModifiers(Qt.NoModifier)
+    for part in (p.strip() for p in raw.split("+")):
+        if not part:
+            continue
+        low = part.lower()
+        if low in {"ctrl", "control"}:
+            mods |= Qt.ControlModifier
+        elif low == "shift":
+            mods |= Qt.ShiftModifier
+        elif low == "alt":
+            mods |= Qt.AltModifier
+        elif low == "meta":
+            mods |= Qt.MetaModifier
+    return mods
+
+
+def chord_modifier_label(chord: str) -> str:
+    """
+    Return a human-readable modifier label for a chord.
+
+    Example:
+        `Shift+LeftClick` -> `Shift`
+        `Ctrl+Alt+LeftClick` -> `Ctrl+Alt`
+    """
+    raw = str(chord or "").strip()
+    if not raw:
+        return ""
+    parts: list[str] = []
+    for part in (p.strip() for p in raw.split("+")):
+        if not part:
+            continue
+        low = part.lower()
+        if low in {"leftclick", "rightclick", "middleclick", "backclick", "forwardclick", "wheelup", "wheeldown"}:
+            continue
+        # Keep canonical casing for known modifiers.
+        if low in {"ctrl", "control"}:
+            parts.append("Ctrl")
+        elif low == "shift":
+            parts.append("Shift")
+        elif low == "alt":
+            parts.append("Alt")
+        elif low == "meta":
+            parts.append("Meta")
+        else:
+            parts.append(part)
+    return "+".join(parts)
+
+
 def mouse_button_name(button: Qt.MouseButton) -> str | None:
     if button == Qt.LeftButton:
         return "LeftClick"
@@ -130,6 +188,8 @@ def is_text_input_widget(widget: QWidget | None) -> bool:
 
 
 __all__ = [
+    "chord_modifier_label",
+    "chord_to_modifiers",
     "event_to_chord",
     "format_modifiers",
     "is_text_input_widget",

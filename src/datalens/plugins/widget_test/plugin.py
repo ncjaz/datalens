@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 import threading
 import time
 
@@ -14,11 +15,18 @@ from datalens.api.plugins import (
     PluginId,
     PluginProjectContext,
     RegisteredHandler,
+    ShortcutButtonBinding,
+    ShortcutButtonCommand,
+    ShortcutCheckBoxBinding,
+    ShortcutCheckBoxCommand,
     ShortcutCommandId,
     ShortcutCommandSpec,
     ShortcutPageSpec,
     ShortcutScope,
     ShortcutSectionSpec,
+    ShortcutTwoStateToggleBinding,
+    ShortcutTwoStateToggleCommand,
+    TwoStateOption,
 )
 from datalens.core.logging import bind_log_context, get_logger
 
@@ -62,6 +70,117 @@ class WidgetTestPlugin(BasePlugin):
 
     def __init__(self) -> None:
         self._counter = _CounterCapability()
+        self._state_lock = threading.Lock()
+        self._demo_checkbox_enabled = False
+        self._demo_checkbox_changed: list[Callable[[], None]] = []
+        self._demo_scope_mode = "global"
+        self._demo_scope_mode_changed: list[Callable[[], None]] = []
+
+        self._count_to_10 = ShortcutButtonBinding(
+            command=ShortcutButtonCommand(
+                command_id=ShortcutCommandId("run_count_10"),
+                title="Run loader: count to 10",
+                button_text="Run: Count to 10",
+                description="Opens a loader dialog and counts to 10 (mixes ctx.log and log.progress).",
+                default_chord="Ctrl+Shift+T",
+                scope=ShortcutScope.WORKSPACE,
+                consume_event=False,
+            ),
+            callback=self._shortcut_run_count_10,
+        )
+        self._demo_checkbox = ShortcutCheckBoxBinding(
+            command=ShortcutCheckBoxCommand(
+                command_id=ShortcutCommandId("demo_checkbox_toggle"),
+                title="Demo checkbox: toggle",
+                checkbox_text="Demo checkbox (toggle via shortcut)",
+                description="Demonstrates a checkbox bound to a managed shortcut command.",
+                default_chord="Ctrl+Shift+U",
+                scope=ShortcutScope.WORKSPACE,
+                consume_event=True,
+            ),
+            get_checked=self._get_demo_checkbox_enabled,
+            set_checked=self._set_demo_checkbox_enabled,
+            subscribe_changed=self._subscribe_demo_checkbox_changed,
+        )
+        self._demo_toggle = ShortcutTwoStateToggleBinding(
+            command=ShortcutTwoStateToggleCommand(
+                command_id=ShortcutCommandId("demo_toggle_flip"),
+                title="Demo 2-state toggle: flip",
+                left=TwoStateOption(id="global", label="Global"),
+                right=TwoStateOption(id="project", label="Project"),
+                description="Demonstrates a 2-state segmented toggle bound to a managed shortcut command.",
+                default_chord="Ctrl+Shift+G",
+                scope=ShortcutScope.WORKSPACE,
+                consume_event=True,
+            ),
+            get_current_id=self._get_demo_scope_mode,
+            set_current_id=self._set_demo_scope_mode,
+            subscribe_changed=self._subscribe_demo_scope_mode_changed,
+        )
+
+    def _get_demo_checkbox_enabled(self) -> bool:
+        with self._state_lock:
+            return bool(self._demo_checkbox_enabled)
+
+    def _set_demo_checkbox_enabled(self, value: bool) -> None:
+        changed_callbacks: tuple[Callable[[], None], ...] = ()
+        with self._state_lock:
+            value = bool(value)
+            if self._demo_checkbox_enabled == value:
+                return
+            self._demo_checkbox_enabled = value
+            changed_callbacks = tuple(self._demo_checkbox_changed)
+        for cb in changed_callbacks:
+            try:
+                cb()
+            except Exception:
+                log.debug("Demo checkbox change callback failed", exc_info=True)
+
+    def _subscribe_demo_checkbox_changed(self, callback: Callable[[], None]) -> Callable[[], None]:
+        with self._state_lock:
+            self._demo_checkbox_changed.append(callback)
+
+        def unsubscribe() -> None:
+            with self._state_lock:
+                try:
+                    self._demo_checkbox_changed.remove(callback)
+                except ValueError:
+                    pass
+
+        return unsubscribe
+
+    def _get_demo_scope_mode(self) -> str:
+        with self._state_lock:
+            return str(self._demo_scope_mode)
+
+    def _set_demo_scope_mode(self, mode: str) -> None:
+        changed_callbacks: tuple[Callable[[], None], ...] = ()
+        mode = str(mode or "")
+        if mode not in {"global", "project"}:
+            return
+        with self._state_lock:
+            if self._demo_scope_mode == mode:
+                return
+            self._demo_scope_mode = mode
+            changed_callbacks = tuple(self._demo_scope_mode_changed)
+        for cb in changed_callbacks:
+            try:
+                cb()
+            except Exception:
+                log.debug("Demo toggle change callback failed", exc_info=True)
+
+    def _subscribe_demo_scope_mode_changed(self, callback: Callable[[], None]) -> Callable[[], None]:
+        with self._state_lock:
+            self._demo_scope_mode_changed.append(callback)
+
+        def unsubscribe() -> None:
+            with self._state_lock:
+                try:
+                    self._demo_scope_mode_changed.remove(callback)
+                except ValueError:
+                    pass
+
+        return unsubscribe
 
     @property
     def plugin_id(self) -> PluginId:
@@ -164,14 +283,9 @@ class WidgetTestPlugin(BasePlugin):
                             default_chord="Ctrl+Shift+H",
                             scope=ShortcutScope.WORKSPACE,
                         ),
-                        ShortcutCommandSpec(
-                            command_id=ShortcutCommandId("run_count_10"),
-                            title="Run loader: count to 10",
-                            description="Opens a loader dialog and counts to 10 (mixes ctx.log and log.progress).",
-                            default_chord="Ctrl+Shift+T",
-                            scope=ShortcutScope.WORKSPACE,
-                            consume_event=False,
-                        ),
+                        self._count_to_10.command.to_shortcut_spec(),
+                        self._demo_checkbox.command.to_shortcut_spec(),
+                        self._demo_toggle.command.to_shortcut_spec(),
                         ShortcutCommandSpec(
                             command_id=ShortcutCommandId("blocked_in_text"),
                             title="Blocked in text inputs",
@@ -216,6 +330,15 @@ class WidgetTestPlugin(BasePlugin):
                             scope=ShortcutScope.WORKSPACE,
                             dispatch_globally=False,
                             mode_toggle_default=True,
+                            consume_event=True,
+                        ),
+                        ShortcutCommandSpec(
+                            command_id=ShortcutCommandId("canvas_delete_vertex"),
+                            title="Canvas: delete selected vertex",
+                            description="Deletes the currently selected vertex in the Widget Test canvas demo.",
+                            default_chord="Del",
+                            scope=ShortcutScope.WORKSPACE,
+                            allow_in_text_inputs=False,
                             consume_event=True,
                         ),
                         ShortcutCommandSpec(
@@ -276,7 +399,9 @@ class WidgetTestPlugin(BasePlugin):
             page=page,
             callbacks={
                 "log_hello": self._shortcut_log_hello,
-                "run_count_10": self._shortcut_run_count_10,
+                str(self._count_to_10.command.command_id): self._count_to_10.callback,
+                str(self._demo_checkbox.command.command_id): self._demo_checkbox.toggle,
+                str(self._demo_toggle.command.command_id): self._demo_toggle.toggle,
                 "blocked_in_text": self._shortcut_blocked_in_text,
                 "allowed_in_text": self._shortcut_allowed_in_text,
                 "multi_modifier": self._shortcut_multi_modifier,
@@ -285,6 +410,7 @@ class WidgetTestPlugin(BasePlugin):
                 "consume_click": self._shortcut_consume_click,
                 "conflict_a": self._shortcut_conflict_a,
                 "conflict_b": self._shortcut_conflict_b,
+                "canvas_delete_vertex": self._shortcut_canvas_delete_vertex,
             },
         )
 
@@ -364,6 +490,21 @@ class WidgetTestPlugin(BasePlugin):
         with bind_log_context(plugin_id=str(self.plugin_id), operation="shortcuts", phase="conflict_b"):
             log.info("Conflict demo B fired")
 
+    def _shortcut_canvas_delete_vertex(self) -> None:
+        with bind_log_context(plugin_id=str(self.plugin_id), operation="canvas", phase="delete_vertex"):
+            try:
+                from datalens.plugins.widget_test.ui.sections.canvas import delete_selected_vertex_from_shortcut
+
+                changed = bool(delete_selected_vertex_from_shortcut())
+            except Exception:
+                log.warning("Canvas delete shortcut failed (best-effort)", exc_info=True)
+                changed = False
+
+            if changed:
+                log.info("Deleted selected vertex")
+            else:
+                log.debug("Delete pressed with no selected vertex (or canvas not active)")
+
     def create_workspace_widget(self, parent, ctx: PluginAppContext):
         """
         Create the workspace widget for this plugin.
@@ -373,7 +514,15 @@ class WidgetTestPlugin(BasePlugin):
         """
         from .ui.workspace import WorkspaceWidget
 
-        return WorkspaceWidget(theme=ctx.app.theme, parent=parent)
+        return WorkspaceWidget(
+            theme=ctx.app.theme,
+            parent=parent,
+            shortcut_button_bindings={
+                "run_count_10": self._count_to_10,
+                "demo_checkbox_toggle": self._demo_checkbox,
+                "demo_toggle_flip": self._demo_toggle,
+            },
+        )
 
     def on_project_migrate(self, ctx: PluginProjectContext) -> PluginFutureResult:
         """Project-scope DB migrations (runs before `on_project_opened`)."""

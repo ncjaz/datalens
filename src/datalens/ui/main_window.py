@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtWidgets import QMainWindow, QWidget
+from PySide6.QtCore import Qt
 
 from datalens.domain.plugin import PluginId
 from datalens.services.plugins.registry import PluginRecord
@@ -10,6 +11,8 @@ from datalens.services.settings_store import default_settings_store
 from datalens.ui.main_window_components import (
     MainWindowUiStateController,
     ProjectActionsController,
+    StatusBarController,
+    UndoRedoController,
     WorkspacesController,
     try_get_app_context,
 )
@@ -33,6 +36,19 @@ class MainWindow(QMainWindow):
         enabled_plugin_ids: set[str] | None = None,
     ) -> None:
         super().__init__(parent)
+        # Explicitly ensure normal OS window chrome (title bar + caption buttons).
+        # Some style/plugin combinations can tweak flags; keep this stable.
+        flags = self.windowFlags()
+        flags &= ~Qt.FramelessWindowHint
+        self.setWindowFlags(
+            flags
+            | Qt.Window
+            | Qt.WindowTitleHint
+            | Qt.WindowSystemMenuHint
+            | Qt.WindowMinimizeButtonHint
+            | Qt.WindowMaximizeButtonHint
+            | Qt.WindowCloseButtonHint
+        )
         self.setWindowTitle("DataLens")
         self.resize(1200, 800)
 
@@ -43,15 +59,29 @@ class MainWindow(QMainWindow):
             {PluginId(pid) for pid in enabled_plugin_ids} if enabled_plugin_ids is not None else None
         )
 
-        menubar = create_menubar(self)
+        self._undo_redo = UndoRedoController(self)
+
+        menubar = create_menubar(
+            self,
+            undo_actions=(self._undo_redo.undo_action, self._undo_redo.redo_action),
+        )
         self.setMenuBar(menubar)
         self._menubar = menubar
         self._menubar.set_recent_projects(self._recent_projects)
 
-        self._workspaces = WorkspacesController(self, plugins=self._plugins, enabled_plugin_ids=self._enabled_plugin_ids)
+        self._workspaces = WorkspacesController(
+            self,
+            plugins=self._plugins,
+            enabled_plugin_ids=self._enabled_plugin_ids,
+            on_active_workspace_widget_changed=self._undo_redo.set_active_workspace_widget,
+        )
         self.setCentralWidget(self._workspaces.central_widget)
 
+        self._status_bar = StatusBarController(self)
         self._ui_state = MainWindowUiStateController(self)
+
+        # Initialize ToastManager singleton (needed for toast notifications system-wide)
+        self._init_toast_manager()
 
         def set_recent_projects(new: list[Path]) -> None:
             self._recent_projects = list(new)
@@ -202,6 +232,38 @@ class MainWindow(QMainWindow):
             load_last_project=load_last_project,
             last_project_root=last_project_root,
         )
+
+    def _init_toast_manager(self) -> None:
+        """
+        Initialize the ToastManager singleton for system-wide toast notifications.
+
+        This must be called after the main window is created so toasts have a parent
+        widget for positioning and theme access.
+        """
+        try:
+            from datalens.ui.widgets.notifications.toast_manager import ToastManager
+            from datalens.services.settings_store import default_settings_store
+            app_ctx = try_get_app_context()
+            if app_ctx is not None:
+                theme = app_ctx.theme
+            else:
+                # Fallback: get theme from QApplication
+                from PySide6.QtWidgets import QApplication
+                app = QApplication.instance()
+                theme = getattr(app, "app_theme", None)
+
+            if theme is not None:
+                manager = ToastManager.get_instance(parent=self, theme=theme)
+                try:
+                    settings = default_settings_store().load()
+                    toast_ui = getattr(settings, "toast_ui", None)
+                    if toast_ui is not None:
+                        manager.apply_ui_settings(toast_ui)
+                except Exception:
+                    pass
+        except Exception:
+            # Toast system is optional; don't crash if it's not available
+            pass
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         """

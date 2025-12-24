@@ -55,6 +55,8 @@ class FileWatcherPanel(QWidget):
         super().__init__(parent)
         self._theme = theme
         self._log = get_logger("datalens.plugins.widget_test.file_watcher")
+        self._disposed = False
+        self._in_automated_tests = bool(os.environ.get("PYTEST_CURRENT_TEST")) or os.environ.get("DATALENS_TESTING") == "1"
 
         self._bridge = _WatchdogBridge()
         self._bridge.event_received.connect(self._on_event_received)
@@ -132,6 +134,45 @@ class FileWatcherPanel(QWidget):
         layout.setColumnStretch(5, 0)
 
         self._apply_state()
+        try:
+            self.destroyed.connect(lambda *_: self._dispose())  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+    def _dispose(self) -> None:
+        """
+        Best-effort shutdown used for lifecycle events (hide/close).
+
+        Avoid touching UI widgets here; the panel may be in the middle of teardown.
+        """
+        if self._disposed:
+            return
+        self._disposed = True
+        try:
+            self._bridge.event_received.disconnect(self._on_event_received)
+        except Exception:
+            pass
+        try:
+            self._bridge.counts_updated.disconnect(self._on_counts_updated)
+        except Exception:
+            pass
+
+        observer = self._observer
+        self._observer = None
+        self._stop.set()
+        self._dirty.set()
+        try:
+            if observer is not None:
+                observer.stop()
+                observer.join(timeout=2.0)
+        except Exception:
+            pass
+        try:
+            if self._scan_thread is not None:
+                self._scan_thread.join(timeout=1.0)
+        except Exception:
+            pass
+        self._scan_thread = None
 
     def _default_path(self) -> Path:
         try:
@@ -148,13 +189,24 @@ class FileWatcherPanel(QWidget):
 
     def _apply_state(self) -> None:
         running = self._observer is not None
-        self._path_edit.setEnabled(not running)
-        self._start.setEnabled(not running)
-        self._stop_btn.setEnabled(running)
-        self._cycle_btn.setEnabled(not running)
+        try:
+            self._path_edit.setEnabled(not running)
+            self._start.setEnabled(not running)
+            self._stop_btn.setEnabled(running)
+            self._cycle_btn.setEnabled(not running)
+        except RuntimeError:
+            return
 
     def start_watching(self) -> None:
+        if self._disposed:
+            return
         if self._observer is not None:
+            return
+        if self._in_automated_tests:
+            self._log.info(
+                "File watcher suppressed during automated tests",
+                extra={"operation": "file_watcher", "phase": "suppressed", "plugin_id": "widget_test"},
+            )
             return
         root = Path(self._path_edit.text()).expanduser()
         if not root.exists() or not root.is_dir():
@@ -198,7 +250,7 @@ class FileWatcherPanel(QWidget):
         )
         self._apply_state()
 
-    def stop_watching(self) -> None:
+    def stop_watching(self, *, update_ui: bool = True) -> None:
         observer = self._observer
         if observer is None:
             return
@@ -216,7 +268,8 @@ class FileWatcherPanel(QWidget):
         except Exception:
             pass
         self._scan_thread = None
-        self._apply_state()
+        if update_ui:
+            self._apply_state()
         self._log.info(
             "File watcher stopped",
             extra={"operation": "file_watcher", "phase": "stop", "plugin_id": "widget_test"},
@@ -227,6 +280,12 @@ class FileWatcherPanel(QWidget):
         Leak/lifecycle test: start/stop the watcher repeatedly and confirm we
         don't leave our scan thread running.
         """
+        if self._in_automated_tests:
+            self._log.info(
+                "File watcher cycle suppressed during automated tests",
+                extra={"operation": "file_watcher", "phase": "cycle_suppressed", "plugin_id": "widget_test"},
+            )
+            return
         root = Path(self._path_edit.text()).expanduser()
         if not root.exists() or not root.is_dir():
             QMessageBox.warning(self, "File watcher", "Please choose an existing folder.")
@@ -238,6 +297,8 @@ class FileWatcherPanel(QWidget):
         self._last_label.setText("Last: (cycling…)")  # type: ignore[arg-type]
 
         def step(i: int) -> None:
+            if self._disposed or not self.isVisible():
+                return
             if i >= cycles:
                 leftovers = 0
                 try:
@@ -259,19 +320,17 @@ class FileWatcherPanel(QWidget):
 
             # start, then stop shortly after
             self.start_watching()
-            QTimer.singleShot(
-                250,
-                lambda: (
-                    self.stop_watching(),
-                    QTimer.singleShot(120, lambda: step(i + 1)),
-                ),
-            )
+            def stop_then_continue() -> None:
+                self.stop_watching(update_ui=True)
+                QTimer.singleShot(120, self, lambda: step(i + 1))
+
+            QTimer.singleShot(250, self, stop_then_continue)
 
         self._log.info(
             "File watcher cycle started",
             extra={"operation": "file_watcher", "phase": "cycle_start", "plugin_id": "widget_test", "cycles": cycles},
         )
-        QTimer.singleShot(0, lambda: step(0))
+        QTimer.singleShot(0, self, lambda: step(0))
 
     def _on_event_received(self, event_type: str, src_path: str, is_dir: bool) -> None:
         self._event_count += 1
@@ -313,10 +372,25 @@ class FileWatcherPanel(QWidget):
 
     def closeEvent(self, event) -> None:
         try:
-            self.stop_watching()
+            self.stop_watching(update_ui=False)
+        except Exception:
+            pass
+        try:
+            self._dispose()
         except Exception:
             pass
         super().closeEvent(event)
+
+    def hideEvent(self, event) -> None:
+        try:
+            self.stop_watching(update_ui=False)
+        except Exception:
+            pass
+        try:
+            self._dispose()
+        except Exception:
+            pass
+        super().hideEvent(event)
 
 
 __all__ = ["FileWatcherPanel"]

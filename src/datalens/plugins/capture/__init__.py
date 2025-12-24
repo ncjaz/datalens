@@ -1,2 +1,2 @@
-"""Capture plugin (shipped with DataLens)."""
+from __future__ import annotations
 

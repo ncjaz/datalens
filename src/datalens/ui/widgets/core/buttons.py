@@ -3,13 +3,20 @@ from __future__ import annotations
 
 from enum import Enum
 from typing import Optional
+from collections.abc import Callable
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QPushButton
 
+from datalens.core.logging import get_logger
+from datalens.domain.plugin import PluginId
+from datalens.ui.shortcuts.tooltips import attach_effective_shortcut_tooltip
 from datalens.ui.theme.app_theme import AppTheme
 from datalens.ui.theme.color_utils import contrast_text_color, darken_hex, lighten_hex
 from datalens.ui.widgets.core.styled import StyledMixin
+
+
+log = get_logger(__name__)
 
 
 class ButtonVariant(str, Enum):
@@ -83,6 +90,7 @@ class DatalensButton(QPushButton, StyledMixin):
         self._outlined = outlined
         self.setCursor(Qt.PointingHandCursor)
         self.setMinimumHeight(32)
+        self._shortcut_tooltip_cleanup: Callable[[], None] | None = None
 
         # Local role colour overrides (if set, they replace theme primary/secondary/tertiary for this button)
         self._primary_override: Optional[str] = None
@@ -97,10 +105,81 @@ class DatalensButton(QPushButton, StyledMixin):
 
         self.apply_theme(theme)
 
+    def attach_shortcut_tooltip(
+        self,
+        *,
+        plugin_id: PluginId,
+        command_id: str,
+        title: str | None = None,
+        description: str | None = None,
+        include_shortcut: bool = True,
+    ) -> Callable[[], None]:
+        """
+        Keep this button's tooltip in sync with the effective chord for a registered shortcut command.
+
+        This uses the managed shortcuts service (source of truth) rather than `QAction.setShortcut(...)`
+        or `QShortcut`, so it avoids double-trigger issues.
+
+        Returns a cleanup function that unsubscribes from shortcut changes.
+        """
+
+        prior = self._shortcut_tooltip_cleanup
+        self._shortcut_tooltip_cleanup = None
+        if callable(prior):
+            try:
+                prior()
+            except Exception:
+                log.debug("Failed to cleanup prior shortcut tooltip subscription", exc_info=True)
+
+        cleanup = attach_effective_shortcut_tooltip(
+            target=self,
+            plugin_id=plugin_id,
+            command_id=command_id,
+            title=title or self.text(),
+            description=description,
+            include_shortcut=include_shortcut,
+        )
+        self._shortcut_tooltip_cleanup = cleanup
+        return cleanup
+
     def set_outlined(self, outlined: bool) -> None:
         """Toggle outlined (border-only) styling for this button."""
         self._outlined = bool(outlined)
         self.apply_theme(self._theme)
+
+    def set_variant(self, variant: ButtonVariant | str) -> None:
+        """
+        Change this button's semantic variant and re-apply theme styling.
+
+        Accepts either:
+        - a `ButtonVariant` enum member, or
+        - a string value like `"confirm"` / `"cancel"`.
+
+        This is best-effort: invalid inputs are logged and ignored rather than
+        crashing the UI (timers may call this repeatedly).
+        """
+        try:
+            if isinstance(variant, ButtonVariant):
+                resolved = variant
+            else:
+                # Be robust to:
+                # - callers passing an Enum from a different module (same values)
+                # - callers passing `str(ButtonVariant.X)` (e.g. "ButtonVariant.CONFIRM")
+                candidate: object = variant
+                try:
+                    candidate = getattr(variant, "value")  # type: ignore[attr-defined]
+                except Exception:
+                    candidate = variant
+                resolved = ButtonVariant(str(candidate))
+            self._variant = resolved
+            self.apply_theme(self._theme)
+        except Exception:
+            log.warning(
+                "Invalid button variant (best-effort): %r",
+                variant,
+                exc_info=True,
+                extra={"operation": "ui", "phase": "variant_error"},
+            )
 
     # ------------------------------------------------------------------
     # Role colour overrides (per-button primary/secondary/tertiary)

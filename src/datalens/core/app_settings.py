@@ -9,10 +9,36 @@ from datalens.core.logging import get_logger
 from datalens.domain.system.settings import AppSettings
 from datalens.domain.plugin import PluginId
 from datalens.domain.system.user_profile import UserProfile
-from datalens.domain.system.ui import LoaderUiSettings
+from datalens.domain.system.ui import LoaderUiSettings, ToastKind, ToastTypeUiVisibility, ToastUiSettings
 from datalens.domain.system.plugin_overrides import PluginDefinitionOverride
 from datalens.domain.system.shortcuts import ShortcutOverrides
 from datalens.domain.ui.theme import DEFAULT_THEME, ThemeOpacitySettings, ThemeSettings
+
+
+def _normalize_modifier_name(value: object) -> str | None:
+    """
+    Normalize a user-provided modifier string to a canonical name.
+
+    Canonical values (used across V2):
+    - Shift
+    - Ctrl
+    - Alt
+    - Meta
+    """
+
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return None
+    mapping = {
+        "shift": "Shift",
+        "ctrl": "Ctrl",
+        "control": "Ctrl",
+        "alt": "Alt",
+        "meta": "Meta",
+        "cmd": "Meta",
+        "command": "Meta",
+    }
+    return mapping.get(raw)
 
 
 def _settings_from_dict(data: dict[str, Any]) -> AppSettings:
@@ -83,6 +109,15 @@ def _settings_from_dict(data: dict[str, Any]) -> AppSettings:
     if isinstance(theme_settings_raw, dict):
         primary_color = str(theme_settings_raw.get("primary_color", DEFAULT_THEME.primary_color))
         background_color = str(theme_settings_raw.get("background_color", DEFAULT_THEME.background_color))
+        background_secondary_color_raw = theme_settings_raw.get(
+            "background_secondary_color",
+            getattr(DEFAULT_THEME, "background_secondary_color", None),
+        )
+        background_secondary_color = (
+            str(background_secondary_color_raw).strip()
+            if isinstance(background_secondary_color_raw, str) and background_secondary_color_raw.strip()
+            else None
+        )
         secondary_color = str(theme_settings_raw.get("secondary_color", DEFAULT_THEME.secondary_color))
         tertiary_color = str(theme_settings_raw.get("tertiary_color", DEFAULT_THEME.tertiary_color))
         text_color = str(theme_settings_raw.get("text_color", DEFAULT_THEME.text_color))
@@ -109,6 +144,7 @@ def _settings_from_dict(data: dict[str, Any]) -> AppSettings:
         theme_settings = ThemeSettings(
             primary_color=primary_color,
             background_color=background_color,
+            background_secondary_color=background_secondary_color,
             secondary_color=secondary_color,
             tertiary_color=tertiary_color,
             text_color=text_color,
@@ -166,11 +202,32 @@ def _settings_from_dict(data: dict[str, Any]) -> AppSettings:
         show_log_critical=bool(loader_ui_raw.get("show_log_critical", LoaderUiSettings.show_log_critical)),
     )
 
+    toast_ui_raw = data.get("toast_ui", {})
+    if not isinstance(toast_ui_raw, dict):
+        toast_ui_raw = {}
+
+    def _parse_toast_kind(kind: ToastKind) -> ToastTypeUiVisibility:
+        raw = toast_ui_raw.get(kind.value, {})
+        if not isinstance(raw, dict):
+            raw = {}
+        return ToastTypeUiVisibility(
+            show_when_minimized=bool(raw.get("show_when_minimized", ToastTypeUiVisibility.show_when_minimized)),
+            show_when_inactive=bool(raw.get("show_when_inactive", ToastTypeUiVisibility.show_when_inactive)),
+        )
+
+    toast_ui = ToastUiSettings(
+        success=_parse_toast_kind(ToastKind.SUCCESS),
+        warning=_parse_toast_kind(ToastKind.WARNING),
+        error=_parse_toast_kind(ToastKind.ERROR),
+        info=_parse_toast_kind(ToastKind.INFO),
+    )
+
     shortcut_overrides_raw = data.get("shortcut_overrides", {})
     shortcut_bindings_raw: dict[str, dict[str, str | None]] = {}
     shortcut_gesture_bindings_raw: dict[str, dict[str, str | None]] = {}
     shortcut_consume_overrides_raw: dict[str, dict[str, bool]] = {}
     shortcut_mode_toggle_overrides_raw: dict[str, dict[str, bool]] = {}
+    modifier_defaults_raw: dict[str, str] = {}
     if isinstance(shortcut_overrides_raw, dict):
         raw_bindings = shortcut_overrides_raw.get("bindings", {})
         if isinstance(raw_bindings, dict):
@@ -244,11 +301,21 @@ def _settings_from_dict(data: dict[str, Any]) -> AppSettings:
                 if normalized:
                     shortcut_mode_toggle_overrides_raw[plugin_id] = normalized
 
+        raw_modifier_defaults = shortcut_overrides_raw.get("modifier_defaults", {})
+        if isinstance(raw_modifier_defaults, dict):
+            primary = _normalize_modifier_name(raw_modifier_defaults.get("primary"))
+            secondary = _normalize_modifier_name(raw_modifier_defaults.get("secondary"))
+            if primary is not None:
+                modifier_defaults_raw["primary"] = primary
+            if secondary is not None:
+                modifier_defaults_raw["secondary"] = secondary
+
     shortcut_overrides = ShortcutOverrides(
         bindings=shortcut_bindings_raw,
         gesture_bindings=shortcut_gesture_bindings_raw,
         consume_event_overrides=shortcut_consume_overrides_raw,
         mode_toggle_overrides=shortcut_mode_toggle_overrides_raw,
+        modifier_defaults=modifier_defaults_raw,
     )
 
     return AppSettings(
@@ -258,6 +325,7 @@ def _settings_from_dict(data: dict[str, Any]) -> AppSettings:
         user_data_dir=user_data_dir,
         enabled_plugins=enabled_plugins,
         loader_ui=loader_ui,
+        toast_ui=toast_ui,
         shortcut_overrides=shortcut_overrides,
         plugin_settings=plugin_settings,
         plugin_overrides=plugin_overrides,

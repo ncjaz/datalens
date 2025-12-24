@@ -9,5 +9,6 @@ they explain behavior, contracts, and lifecycle.
 
    ../core_systems
    shortcuts
+   undo_redo
    ../services
    ../ipc/index

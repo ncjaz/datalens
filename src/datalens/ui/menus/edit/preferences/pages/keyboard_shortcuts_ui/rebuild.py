@@ -125,6 +125,7 @@ def rebuild_shortcuts_ui(
                         scope=str(cmd.get("scope") or "workspace"),
                         default_chord=cmd.get("default_chord"),
                         effective_chord=cmd.get("effective_chord"),
+                        is_overridden=bool(cmd.get("is_overridden", False)),
                         consume_event=bool(cmd.get("consume_event", False)),
                         mode_toggle_default=cmd.get("mode_toggle_default"),
                         mode_toggle_effective=cmd.get("mode_toggle"),
@@ -140,6 +141,8 @@ def rebuild_shortcuts_ui(
                         scope=str(g.get("scope") or "workspace"),
                         default_chord=g.get("default_chord"),
                         effective_chord=g.get("effective_chord"),
+                        is_overridden=bool(g.get("is_overridden", False)),
+                        uses_modifier_defaults=bool(g.get("uses_modifier_defaults", False)),
                         consume_event=bool(g.get("consume_event", True)),
                     )
 

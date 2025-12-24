@@ -29,6 +29,20 @@ widgets automatically pick the correct surface colour:
 In V2 this is done via `AppTheme.apply_to(QApplication)` (also exposed as
 `datalens.ui.theme.palette.apply_palette(app, theme)`).
 
+## Global QSS (app-wide styling)
+
+On top of the Qt palette, V2 applies a small global stylesheet for consistent
+UI chrome + inputs across the whole app (Welcome + Main windows, and plugin UI
+that uses standard Qt widgets).
+
+- QSS builder: `datalens.ui.theme.global_qss.build_global_qss`
+- Applied via: `datalens.ui.theme.app_theme.AppTheme.apply_to`
+
+Notable token:
+
+- `ThemeSettings.background_secondary_color` drives menu/status chrome backgrounds
+  (defaults to a derived colour from `background_color`).
+
 ## Color tokens
 
 `ThemeSettings` stores the base palette (primary/secondary/tertiary/text and

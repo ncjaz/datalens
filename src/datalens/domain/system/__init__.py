@@ -19,7 +19,9 @@ from .shortcuts import (
     ShortcutScope,
     ShortcutSectionSpec,
 )
+from .frames import CameraIntrinsics, FrameBundle
 from .user_profile import UserProfile
+from .system_info import GpuInfo, SystemInfoSnapshot
 from .workspace_state import WorkspaceStateSnapshot
 from .plugin_state import PluginStateEntry, PluginStateSnapshot
 
@@ -32,7 +34,11 @@ __all__ = [
     "ShortcutPageSpec",
     "ShortcutScope",
     "ShortcutSectionSpec",
+    "CameraIntrinsics",
+    "FrameBundle",
     "UserProfile",
+    "GpuInfo",
+    "SystemInfoSnapshot",
     "WorkspaceStateSnapshot",
     "PluginStateEntry",
     "PluginStateSnapshot",

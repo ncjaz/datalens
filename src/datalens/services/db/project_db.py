@@ -88,8 +88,8 @@ class CoreDbOwnershipError(RuntimeError):
     pass
 
 
-_CORE_TABLES: set[str] = {"app_meta", "plugin_kv", "plugin_meta"}
-_CORE_DML_ALLOWED: set[str] = {"app_meta"}
+_CORE_TABLES: set[str] = {"app_meta", "plugin_kv", "plugin_meta", "media_files"}
+_CORE_DML_ALLOWED: set[str] = {"app_meta", "media_files"}
 _SQL_WS = re.compile(r"\s+")
 _SQL_QUOTED = re.compile(r'^[`"\[]?(.*?)[`"\]]?$')
 _SQLITE_INTERNAL_TABLES: set[str] = {
@@ -143,7 +143,6 @@ _CORE_ONLY_DENY_ACTIONS: set[int] = {
         _sqlite_const("SQLITE_DROP_VIEW"),
         # Not all sqlite3 builds expose SQLITE_VACUUM; trace guard still catches it.
         _sqlite_const("SQLITE_VACUUM"),
-        _sqlite_const("SQLITE_REINDEX"),
         _sqlite_const("SQLITE_ANALYZE"),
     )
     if isinstance(c, int)
@@ -170,17 +169,30 @@ def _core_only_authorizer(
       paths and well-behaved plugins that use our facades.
     """
 
+    try:
+        action_value = int(getattr(action, "value", action))  # type: ignore[arg-type]
+    except Exception:
+        action_value = 0
+
     def deny(message: str) -> int:
         _set_core_only_violation(message)
         return sqlite3.SQLITE_DENY
 
-    if action in _CORE_ONLY_DENY_ACTIONS:
+    # SQLite checks authorizer permissions for "REINDEX" during CREATE INDEX.
+    # Some Python builds do not expose SQLITE_REINDEX; fall back to the stable
+    # numeric value (27) so CREATE INDEX can proceed. The trace guard still
+    # blocks any explicit REINDEX statement.
+    reindex_action = _sqlite_const("SQLITE_REINDEX") or 27
+    if action_value == int(reindex_action):
+        return sqlite3.SQLITE_OK
+
+    if action_value in _CORE_ONLY_DENY_ACTIONS:
         return deny(
-            f"Core-only DB operation denied by sqlite authorizer: action={action} arg1={arg1!r} arg2={arg2!r}"
+            f"Core-only DB operation denied by sqlite authorizer: action={action_value} arg1={arg1!r} arg2={arg2!r}"
         )
 
     # Allow all reads/selects/functions/transactions.
-    if action in {
+    if action_value in {
         sqlite3.SQLITE_READ,
         sqlite3.SQLITE_SELECT,
         sqlite3.SQLITE_FUNCTION,
@@ -190,13 +202,13 @@ def _core_only_authorizer(
         return sqlite3.SQLITE_OK
 
     # Pragmas are used by core schema helpers (including setting user_version).
-    if action == sqlite3.SQLITE_PRAGMA:
+    if action_value == sqlite3.SQLITE_PRAGMA:
         return sqlite3.SQLITE_OK
 
     def normalize_table(name: str | None) -> str:
         return _normalize_ident(name or "")
 
-    if action in {sqlite3.SQLITE_INSERT, sqlite3.SQLITE_UPDATE, sqlite3.SQLITE_DELETE}:
+    if action_value in {sqlite3.SQLITE_INSERT, sqlite3.SQLITE_UPDATE, sqlite3.SQLITE_DELETE}:
         table = normalize_table(arg1)
         if table in _SQLITE_INTERNAL_TABLES:
             return sqlite3.SQLITE_OK
@@ -206,13 +218,20 @@ def _core_only_authorizer(
             return deny(f"Core-only DB operation attempted to mutate plugin-owned rows in {table!r}")
         return deny(f"Core-only DB operation attempted to modify non-core table {table!r}")
 
-    if action in {sqlite3.SQLITE_CREATE_TABLE, sqlite3.SQLITE_ALTER_TABLE}:
+    if action_value in {sqlite3.SQLITE_CREATE_TABLE, sqlite3.SQLITE_ALTER_TABLE}:
         table = normalize_table(arg1)
         if table in _CORE_TABLES:
             return sqlite3.SQLITE_OK
         return deny(f"Core-only DB operation attempted to change non-core table {table!r}")
 
-    if action == sqlite3.SQLITE_CREATE_INDEX:
+    if action_value == sqlite3.SQLITE_CREATE_INDEX:
+        # Some SQLite builds/drivers may not report `arg2` (table name) for
+        # CREATE INDEX actions (notably when using IF NOT EXISTS). In that case,
+        # allow here and rely on the trace-callback guard to enforce core-only
+        # table ownership based on the full SQL statement.
+        if not arg2:
+            return sqlite3.SQLITE_OK
+
         table = normalize_table(arg2)
         if table in _SQLITE_INTERNAL_TABLES:
             return sqlite3.SQLITE_OK

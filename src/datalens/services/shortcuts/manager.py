@@ -18,7 +18,7 @@ import threading
 import time
 from collections import defaultdict
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from PySide6.QtCore import QCoreApplication, QTimer
@@ -49,6 +49,9 @@ class ShortcutConflict:
 class ShortcutsSnapshot:
     pages: tuple[dict[str, Any], ...]
     conflicts: tuple[ShortcutConflict, ...]
+    # Snapshot of the current global modifier defaults (semantic, persisted in settings.json).
+    # Keys are "primary"/"secondary"; values are "Shift"/"Ctrl"/"Alt"/"Meta".
+    modifier_defaults: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -123,6 +126,7 @@ class ShortcutsService:
                     "gestures": gestures_count,
                     "consume_overrides": consume_count,
                     "mode_overrides": mode_count,
+                    "modifier_defaults": dict(getattr(overrides, "modifier_defaults", {}) or {}),
                 },
             )
         with self._lock:
@@ -234,7 +238,10 @@ class ShortcutsService:
         Intended for the Preferences UI to render and edit user overrides.
         """
         pages_out: list[dict[str, Any]] = []
+        modifier_defaults = self._get_modifier_defaults()
         for page in self._registry.pages_snapshot():
+            overrides_for_plugin = self._overrides.for_plugin(page.plugin_id)
+            gesture_overrides_for_plugin = self._overrides.gestures_for_plugin(page.plugin_id)
             pages_out.append(
                 {
                     "plugin_id": str(page.plugin_id),
@@ -250,7 +257,11 @@ class ShortcutsService:
                                     "command_id": str(c.command_id),
                                     "title": c.title,
                                     "description": c.description,
-                                    "default_chord": str(c.default_chord) if c.default_chord is not None else None,
+                                    "default_chord": self._resolve_modifier_placeholders(
+                                        str(c.default_chord)
+                                    )
+                                    if c.default_chord is not None
+                                    else None,
                                     "scope": str(c.scope.value),
                                     "allow_in_text_inputs": bool(c.allow_in_text_inputs),
                                     "dispatch_globally": bool(getattr(c, "dispatch_globally", True)),
@@ -268,6 +279,7 @@ class ShortcutsService:
                                         command_id=str(c.command_id),
                                         default=str(c.default_chord) if c.default_chord is not None else None,
                                     ),
+                                    "is_overridden": str(c.command_id) in overrides_for_plugin,
                                 }
                                 for c in s.commands
                             ],
@@ -276,7 +288,11 @@ class ShortcutsService:
                                     "gesture_id": str(g.gesture_id),
                                     "title": g.title,
                                     "description": g.description,
-                                    "default_chord": str(g.begin_chord) if g.begin_chord is not None else None,
+                                    "default_chord": self._resolve_modifier_placeholders(
+                                        str(g.begin_chord)
+                                    )
+                                    if g.begin_chord is not None
+                                    else None,
                                     "scope": str(g.scope.value),
                                     "consume_event": self.get_effective_gesture_consume_event(
                                         plugin_id=page.plugin_id,
@@ -288,6 +304,10 @@ class ShortcutsService:
                                         gesture_id=str(g.gesture_id),
                                         default=str(g.begin_chord) if g.begin_chord is not None else None,
                                     ),
+                                    "is_overridden": str(g.gesture_id) in gesture_overrides_for_plugin,
+                                    "uses_modifier_defaults": self._chord_uses_modifier_defaults(
+                                        str(g.begin_chord) if g.begin_chord is not None else ""
+                                    ),
                                 }
                                 for g in getattr(s, "gestures", ())
                             ],
@@ -297,7 +317,7 @@ class ShortcutsService:
                 }
             )
         runtime = self._runtime
-        return ShortcutsSnapshot(pages=tuple(pages_out), conflicts=runtime.conflicts)
+        return ShortcutsSnapshot(pages=tuple(pages_out), conflicts=runtime.conflicts, modifier_defaults=modifier_defaults)
 
     def get_effective_chord(self, *, plugin_id: PluginId, command_id: str, default: str | None = None) -> str | None:
         """
@@ -315,12 +335,14 @@ class ShortcutsService:
         overrides_for_plugin = self._overrides.for_plugin(plugin_id)
         if command_id in overrides_for_plugin:
             chord = overrides_for_plugin.get(command_id)
-            return str(chord).strip() if chord else None
+            return self._resolve_modifier_placeholders(str(chord).strip()) if chord else None
         if default is not None:
-            return str(default).strip() if str(default).strip() else None
+            return self._resolve_modifier_placeholders(str(default).strip()) if str(default).strip() else None
         for cmd in self._registry.plugin_commands_snapshot(plugin_id):
             if str(cmd.command_id) == command_id:
-                return str(cmd.spec.default_chord).strip() if cmd.spec.default_chord is not None else None
+                if cmd.spec.default_chord is None:
+                    return None
+                return self._resolve_modifier_placeholders(str(cmd.spec.default_chord).strip())
         return None
 
     def get_effective_command_chord(self, *, plugin_id: PluginId, command_id: str) -> str | None:
@@ -383,13 +405,73 @@ class ShortcutsService:
         overrides_for_plugin = self._overrides.gestures_for_plugin(plugin_id)
         if gesture_id in overrides_for_plugin:
             chord = overrides_for_plugin.get(gesture_id)
-            return str(chord).strip() if chord else None
+            return self._resolve_modifier_placeholders(str(chord).strip()) if chord else None
         if default is not None:
-            return str(default).strip() if str(default).strip() else None
+            return self._resolve_modifier_placeholders(str(default).strip()) if str(default).strip() else None
         for g in self._registry.plugin_gestures_snapshot(plugin_id):
             if str(g.gesture_id) == gesture_id:
-                return str(g.spec.begin_chord).strip() if g.spec.begin_chord is not None else None
+                if g.spec.begin_chord is None:
+                    return None
+                return self._resolve_modifier_placeholders(str(g.spec.begin_chord).strip())
         return None
+
+    def _get_modifier_defaults(self) -> dict[str, str]:
+        """
+        Return the effective global modifier defaults.
+
+        These are semantic user settings (not UI state) and are used to resolve
+        placeholder chords like `Primary+LeftClick` in gesture bindings.
+        """
+        defaults = dict(getattr(self._overrides, "modifier_defaults", {}) or {})
+        primary = str(defaults.get("primary") or "").strip() or "Shift"
+        secondary = str(defaults.get("secondary") or "").strip() or "Ctrl"
+        # Enforce canonical names used by chord formatting.
+        primary = primary[:1].upper() + primary[1:].lower()
+        secondary = secondary[:1].upper() + secondary[1:].lower()
+        if primary not in ("Shift", "Ctrl", "Alt", "Meta"):
+            primary = "Shift"
+        if secondary not in ("Shift", "Ctrl", "Alt", "Meta"):
+            secondary = "Ctrl"
+        return {"primary": primary, "secondary": secondary}
+
+    @staticmethod
+    def _chord_uses_modifier_defaults(chord: str) -> bool:
+        """
+        Return True if a chord uses `Primary` or `Secondary` placeholder tokens.
+
+        This is used by the Preferences UI to decide whether a binding "follows"
+        the global modifier defaults.
+        """
+        raw = str(chord or "").strip().lower()
+        if not raw:
+            return False
+        return ("primary" in raw.split("+")) or ("secondary" in raw.split("+"))
+
+    def _resolve_modifier_placeholders(self, chord: str) -> str:
+        """
+        Resolve placeholder tokens `Primary` and `Secondary` into concrete modifiers.
+
+        Resolution is based on `ShortcutOverrides.modifier_defaults`:
+        - Primary -> defaults["primary"] (fallback Shift)
+        - Secondary -> defaults["secondary"] (fallback Ctrl)
+        """
+        raw = str(chord or "").strip()
+        if not raw:
+            return ""
+        parts = [p.strip() for p in raw.split("+") if p.strip()]
+        if not parts:
+            return raw
+        defaults = self._get_modifier_defaults()
+        out: list[str] = []
+        for p in parts:
+            low = p.lower()
+            if low == "primary":
+                out.append(defaults["primary"])
+            elif low == "secondary":
+                out.append(defaults["secondary"])
+            else:
+                out.append(p)
+        return "+".join(out)
 
     def get_effective_gesture_consume_event(self, *, plugin_id: PluginId, gesture_id: str, default: bool) -> bool:
         """Return the effective consume flag for a gesture (user override if present, else `default`)."""

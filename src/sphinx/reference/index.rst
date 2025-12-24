@@ -7,5 +7,5 @@ API listings and deep reference material.
    :maxdepth: 2
 
    ../api_reference
+   undo_redo_api
    ../architecture_audit
-

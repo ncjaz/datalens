@@ -9,7 +9,7 @@ from datalens.domain.ui.theme import ThemeOpacitySettings
 from datalens.domain.ui.theme import DEFAULT_THEME, ThemeSettings
 from datalens.domain.system.plugin_overrides import PluginDefinitionOverride
 from datalens.domain.system.shortcuts import ShortcutOverrides
-from datalens.domain.system.ui import LoaderUiSettings
+from datalens.domain.system.ui import LoaderUiSettings, ToastUiSettings
 from datalens.domain.system.user_profile import UserProfile
 
 
@@ -42,6 +42,9 @@ class AppSettings:
 
     # Loader dialog UI preferences (app/user scoped).
     loader_ui: LoaderUiSettings = field(default_factory=LoaderUiSettings)
+
+    # Toast notification UI preferences (app/user scoped).
+    toast_ui: ToastUiSettings = field(default_factory=ToastUiSettings)
 
     # Shortcut overrides (semantic preferences). Defaults come from registrations.
     shortcut_overrides: ShortcutOverrides = field(default_factory=ShortcutOverrides)

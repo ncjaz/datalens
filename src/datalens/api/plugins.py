@@ -58,12 +58,25 @@ from datalens.core.events import (
 )
 from datalens.api.sharing import (
     CAP_ANNOTATIONS_CURRENT,
+    CAP_MEDIA_INDEX,
     CAP_MEDIA_CURRENT,
+    CAP_PLUGIN_PREFERENCES_SNAPSHOT,
     CAP_PROJECT_STATUS,
     CAP_WORKSPACE_STATE_SNAPSHOT,
+    CMD_MEDIA_REGISTER,
     CMD_PROJECT_CLOSE,
     CMD_PROJECT_OPEN,
     CMD_WORKSPACE_FOCUS,
+)
+from datalens.api.ui_commands import (
+    ShortcutButtonBinding,
+    ShortcutButtonCommand,
+    ShortcutCheckBoxBinding,
+    ShortcutCheckBoxCommand,
+    ShortcutTwoStateToggleBinding,
+    ShortcutTwoStateToggleCommand,
+    TwoStateOption,
+    register_shortcut_page_for_buttons,
 )
 
 __all__ = [
@@ -103,8 +116,11 @@ __all__ = [
     # Canonical sharing ids (convergence point)
     "CAP_WORKSPACE_STATE_SNAPSHOT",
     "CAP_PROJECT_STATUS",
+    "CAP_PLUGIN_PREFERENCES_SNAPSHOT",
+    "CAP_MEDIA_INDEX",
     "CAP_MEDIA_CURRENT",
     "CAP_ANNOTATIONS_CURRENT",
+    "CMD_MEDIA_REGISTER",
     "CMD_PROJECT_OPEN",
     "CMD_PROJECT_CLOSE",
     "CMD_WORKSPACE_FOCUS",
@@ -118,6 +134,15 @@ __all__ = [
     "ShortcutPageSpec",
     "ShortcutScope",
     "ShortcutSectionSpec",
+    # UI command helpers (button + shortcuts)
+    "ShortcutButtonBinding",
+    "ShortcutButtonCommand",
+    "ShortcutCheckBoxBinding",
+    "ShortcutCheckBoxCommand",
+    "ShortcutTwoStateToggleBinding",
+    "ShortcutTwoStateToggleCommand",
+    "TwoStateOption",
+    "register_shortcut_page_for_buttons",
     # Runtime hook contracts
     "BasePlugin",
     "PluginAppContext",

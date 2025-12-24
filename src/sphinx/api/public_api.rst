@@ -9,4 +9,5 @@ This section documents the stable-ish import surface intended for plugin authors
 
    datalens.api
    datalens.api.plugins
-
+   datalens.api.sharing
+   datalens.api.ui_commands

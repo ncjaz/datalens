@@ -28,6 +28,11 @@ from datalens.domain.plugin import PluginId
 from datalens.domain.system.plugin_overrides import PluginDefinitionOverride
 from datalens.core.events import EventHub, PluginDefinitionsChanged
 from datalens.services.plugins.registry import PluginOrigin, PluginRecord
+from datalens.services.plugins.dependencies import (
+    check_plugin_dependencies,
+    install_pip_requirements,
+    plugin_installer_enabled,
+)
 from datalens.services.settings_store import default_settings_store
 from datalens.core.context import get_app_context
 from datalens.ui.qt_settings import QSettingsScope
@@ -116,6 +121,29 @@ class ManagePluginsDialog(QDialog):
         info_form.addRow("Description", self._desc_label)
 
         detail_layout.addWidget(info_box)
+
+        deps_box = QGroupBox("Dependencies")
+        deps_layout = QVBoxLayout(deps_box)
+        deps_layout.setContentsMargins(12, 12, 12, 12)
+        deps_layout.setSpacing(8)
+
+        self._deps_summary = QLabel("")
+        self._deps_summary.setWordWrap(True)
+        deps_layout.addWidget(self._deps_summary)
+
+        self._deps_detail = QPlainTextEdit()
+        self._deps_detail.setReadOnly(True)
+        self._deps_detail.setMinimumHeight(90)
+        deps_layout.addWidget(self._deps_detail)
+
+        deps_actions = QHBoxLayout()
+        deps_actions.addStretch(1)
+        self._install_reqs_btn = QPushButton("Install missing requirements…", self)
+        self._install_reqs_btn.clicked.connect(self._install_missing_requirements)
+        deps_actions.addWidget(self._install_reqs_btn)
+        deps_layout.addLayout(deps_actions)
+
+        detail_layout.addWidget(deps_box)
 
         overrides_box = QGroupBox("Editable metadata (saved to settings.json)")
         overrides_form = QFormLayout(overrides_box)
@@ -232,6 +260,9 @@ class ManagePluginsDialog(QDialog):
     def _render(self) -> None:
         record = self._current_record()
         if record is None:
+            self._deps_summary.setText("")
+            self._deps_detail.setPlainText("")
+            self._install_reqs_btn.setEnabled(False)
             return
 
         self._id_label.setText(str(record.definition.id))
@@ -255,6 +286,49 @@ class ManagePluginsDialog(QDialog):
         self._name_edit.setText(override.name or "")
         self._group_edit.setText("" if override.group is None else override.group)
         self._nav_label_edit.setText("" if override.nav_label is None else override.nav_label)
+
+        self._render_dependencies(record)
+
+    def _render_dependencies(self, record: PluginRecord) -> None:
+        report = check_plugin_dependencies(record)
+
+        lines: list[str] = []
+        for item in report.pip:
+            if item.status == "ok":
+                lines.append(f"OK   {item.requirement}  (installed={item.installed_version})")
+            elif item.status == "missing":
+                lines.append(f"MISS {item.requirement}")
+            elif item.status == "incompatible":
+                lines.append(f"BAD  {item.requirement}  (installed={item.installed_version})")
+            elif item.status == "skipped":
+                lines.append(f"SKIP {item.requirement}  ({item.details or 'marker'})")
+            else:
+                lines.append(f"UNK  {item.requirement}  ({item.details or 'unknown'})")
+
+        if report.manual:
+            lines.append("")
+            lines.append("Manual requirements (not auto-installed):")
+            for req in report.manual:
+                lines.append(f"- {req}")
+
+        missing = report.missing_pip
+        if missing:
+            self._deps_summary.setText(
+                "Missing or incompatible pip requirements detected.\n"
+                "You can install them into the current Python environment.\n\n"
+                "Restart DataLens after installing to re-load the plugin."
+            )
+        else:
+            self._deps_summary.setText("All pip requirements appear satisfied in the current environment.")
+
+        self._deps_detail.setPlainText("\n".join(lines).strip())
+
+        can_install = bool(missing) and plugin_installer_enabled()
+        self._install_reqs_btn.setEnabled(can_install)
+        if not plugin_installer_enabled():
+            self._install_reqs_btn.setToolTip("Disabled (set DATALENS_ENABLE_PLUGIN_INSTALLER=1 to enable).")
+        else:
+            self._install_reqs_btn.setToolTip("")
 
     def _validate_override(self, record: PluginRecord, override: PluginDefinitionOverride) -> str | None:
         if override.name is not None and not override.name.strip():
@@ -398,3 +472,53 @@ class ManagePluginsDialog(QDialog):
         self._publish_definitions_changed(plugin_ids=(PluginId(plugin_id),), fields=("plugin_overrides",))
         self._render()
         self._populate_list()
+
+    def _install_missing_requirements(self) -> None:
+        record = self._current_record()
+        if record is None:
+            return
+
+        report = check_plugin_dependencies(record)
+        missing = report.missing_pip
+        if not missing:
+            QMessageBox.information(self, "No Missing Dependencies", "All requirements appear satisfied.")
+            return
+        if not plugin_installer_enabled():
+            QMessageBox.information(
+                self,
+                "Installer Disabled",
+                "The experimental plugin installer is disabled.\n\n"
+                "Set DATALENS_ENABLE_PLUGIN_INSTALLER=1 to enable it.",
+            )
+            return
+
+        from datalens.infra.background.loader_context import LoaderContext
+        from datalens.infra.background.loader_runner import run_with_loader
+
+        def task(ctx: LoaderContext) -> object:
+            ctx.log(f"Installing missing requirements for {record.definition.name} ({record.definition.id})…")
+            install_pip_requirements(missing, ctx=ctx)
+            ctx.set_progress(1.0)
+            return None
+
+        def on_done(_result: object) -> None:
+            # Re-render so status updates immediately.
+            self._render()
+            QMessageBox.information(
+                self,
+                "Installed",
+                "Dependencies installed into the current Python environment.\n\n"
+                "Restart DataLens to re-load the plugin.",
+            )
+
+        def on_error(exc: Exception) -> None:
+            QMessageBox.critical(self, "Install Failed", str(exc))
+
+        run_with_loader(
+            parent=self,
+            title="Installing Dependencies…",
+            task=task,
+            on_result=on_done,
+            on_error=on_error,
+            dialog_options={"cancel_text": "Cancel"},
+        )

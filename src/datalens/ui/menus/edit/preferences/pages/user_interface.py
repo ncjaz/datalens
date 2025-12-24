@@ -5,6 +5,7 @@ from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 from datalens.ui.menus.edit.preferences.pages.loader import LoaderPreferencesPage
 from datalens.ui.menus.edit.preferences.pages.theme import ThemePreferencesPage
+from datalens.ui.menus.edit.preferences.pages.toast import ToastPreferencesPage
 
 
 class UserInterfacePreferencesPage(QWidget):
@@ -30,6 +31,7 @@ class UserInterfacePreferencesPage(QWidget):
 
         layout.addWidget(ThemePreferencesPage(self))
         layout.addWidget(LoaderPreferencesPage(self))
+        layout.addWidget(ToastPreferencesPage(self))
         layout.addStretch(1)
 
 

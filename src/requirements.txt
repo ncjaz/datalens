@@ -1,0 +1,27 @@
+#
+# DataLens V2 runtime requirements (app + shipped plugins).
+#
+# Notes:
+# - This file intentionally covers *runtime* deps only.
+# - Documentation build deps live in `datalens/src/sphinx/requirements.txt`.
+# - Some plugins may have optional dependencies (e.g. RealSense).
+#
+
+# Qt / UI
+PySide6
+
+
+# Core image/data utilities
+numpy
+Pillow
+opencv-python
+
+# File discovery / watching (plugins + core)
+watchdog
+
+# Used for robust version parsing/comparison in a few places.
+packaging
+
+# Optional: Intel RealSense support (Capture plugin).
+pyrealsense2
+

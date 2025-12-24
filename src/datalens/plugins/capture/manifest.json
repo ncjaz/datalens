@@ -1,18 +1,41 @@
 {
-  "id": "capture",
-  "name": "Capture",
-  "version": "1.0.0",
-  "stage": "alpha",
-  "description": "Capture images/video from connected devices.",
-  "group": "Capture",
-  "enabled_by_default": false,
+  "description": "Capture images from webcams and RealSense devices (webcam MVP).",
   "features": [
     {
-      "id": "workspace",
-      "kind": "workspace",
-      "entrypoint": "datalens.plugins.capture.capture:CaptureWorkspace",
+      "description": "Capture workspace (camera preview + save).",
       "display_name": "Capture",
-      "description": "Capture media from webcams and other devices."
+      "entrypoint": "plugin:get_plugin",
+      "id": "workspace",
+      "kind": "workspace"
     }
-  ]
+  ],
+  "id": "capture",
+  "name": "Capture",
+  "nav_label": "CA",
+  "preferences": {
+    "schema_version": 1,
+    "sections": [
+      {
+        "description": "Camera discovery behavior (webcam MVP).",
+        "fields": [
+          {
+            "default": "manual",
+            "description": "Manual = refresh only when requested. Auto = periodically refresh while capture is stopped.",
+            "kind": "toggle",
+            "key": "scan_mode",
+            "options": [
+              { "id": "manual", "label": "Manual" },
+              { "id": "auto", "label": "Auto" }
+            ],
+            "title": "Device scanning"
+          }
+        ],
+        "id": "devices",
+        "title": "Devices"
+      }
+    ],
+    "title": "Capture"
+  },
+  "stage": "dev",
+  "version": "0.1.0"
 }

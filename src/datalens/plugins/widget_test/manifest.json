@@ -12,6 +12,37 @@
   "id": "widget_test",
   "name": "widget test",
   "nav_label": "WT",
+  "preferences": {
+    "schema_version": 1,
+    "sections": [
+      {
+        "description": "Example plugin preferences driven by the manifest (no runtime import required).",
+        "fields": [
+          {
+            "default": false,
+            "description": "If enabled, widget_test may log extra debug details while you interact with the app.",
+            "kind": "bool",
+            "key": "verbose_logging",
+            "title": "Verbose logging"
+          },
+          {
+            "default": "basic",
+            "description": "Selects which UI hints the widget_test workspace shows in some demo panels.",
+            "kind": "enum",
+            "key": "demo_mode",
+            "options": [
+              { "id": "basic", "label": "Basic" },
+              { "id": "advanced", "label": "Advanced" }
+            ],
+            "title": "Demo mode"
+          }
+        ],
+        "id": "demo",
+        "title": "Demo"
+      }
+    ],
+    "title": "Widget Test"
+  },
   "stage": "dev",
   "version": "0.1.0"
 }

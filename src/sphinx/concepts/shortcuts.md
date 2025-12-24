@@ -287,3 +287,44 @@ For UI buttons that duplicate a shortcut action, show the effective chord in the
 
 If you need tooltips to update live after the user edits shortcuts, subscribe to
 `ShortcutsService.subscribe_changed(...)` and update the tooltip from that callback.
+
+## Button + Shortcut Helper Utilities
+
+To reduce boilerplate when creating buttons with keyboard shortcuts, use the binding pattern:
+
+### Option 1: All-in-one button creation
+
+Use `ShortcutButtonBinding.create_button()` to create and wire a button in one call:
+
+```python
+# In plugin __init__:
+self._save_binding = ShortcutButtonBinding(
+    command=ShortcutButtonCommand(...),
+    callback=self._on_save,
+)
+
+# In workspace UI:
+btn = self._save_binding.create_button(
+    theme=ctx.app.theme,
+    parent=parent,
+    plugin_id=self.plugin_id,
+)
+```
+
+### Option 2: Wire existing button to binding
+
+Use `wire_button_to_binding()` from `datalens.ui.shortcuts.helpers` for manual button creation:
+
+```python
+from datalens.ui.shortcuts.helpers import wire_button_to_binding
+
+# Create button with custom styling
+btn = DatalensButton("Save", ctx.app.theme, ButtonVariant.PRIMARY)
+btn.setMinimumWidth(120)
+
+# Wire to binding (connects clicked signal + attaches tooltip)
+wire_button_to_binding(btn, binding=plugin.save_binding, plugin_id=plugin.plugin_id)
+```
+
+**Key benefit**: Both patterns keep shortcut registration separate from button creation, maintaining
+the architectural separation between service layer (shortcuts) and UI layer (widgets).

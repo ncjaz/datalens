@@ -12,6 +12,8 @@ It complements:
 - `datalens/src/review_and_plan/event_hub.md` (EventHub plan/status)
 - `datalens/src/review_and_plan/state_registry_and_inspector.md` (state registry + inspector plan/status)
 - `datalens/src/review_and_plan/shortcuts_system.md` (keyboard + mouse shortcuts plan/status)
+- `datalens/src/review_and_plan/media_index.md` (core project media/file index plan/status)
+- `datalens/src/review_and_plan/plugins/README.md` (real plugin implementation plans)
 
 If you're looking for the older, very detailed architecture write-ups/diagrams (600+ lines), those still exist but are only partially accurate for V2:
 - `datalens/src/review_and_plan/ARCHITECTURE_SUMMARY.md` (legacy, comprehensive narrative)
@@ -138,6 +140,9 @@ Use this section as the quick "what's left" checklist. Each item should point to
 | Event hub | App-wide semantic events (queued UI-thread delivery; publish non-blocking) | `datalens/src/review_and_plan/event_hub.md` | Implemented (MVP) |
 | State registry + inspector | Queryable core/plugin state + Help → States inspector | `datalens/src/review_and_plan/state_registry_and_inspector.md` | Planned |
 | Shortcuts system | Keyboard + mouse shortcut registry/dispatcher (window-focused, plugin pages) | `datalens/src/review_and_plan/shortcuts_system.md` | Implemented (MVP) |
+| Plugin preferences | Manifest-driven plugin preferences rendered in Preferences UI + persisted in settings.json | `datalens/src/review_and_plan/plugin_preferences.md` | Implemented (v0) |
+| Project media index | Core-owned file/media index for discovery + cross-plugin references | `datalens/src/review_and_plan/media_index.md` | Planned |
+| Plugin plans | Real plugin feature plans (Capture, canvas system, etc.) | `datalens/src/review_and_plan/plugins/README.md` | Planned |
 
 ### 1) Real feature implementations (beyond placeholders)
 - Build real workspace UIs for shipped plugins (annotation/review/meval/train/capture).
@@ -212,6 +217,7 @@ See `datalens/src/datalens/infra/project_paths.py` and `datalens/src/review_and_
 - [x] IoWriter async file writes + flush/close semantics
 - [x] PersistenceQueue (merge/snapshot/save) primitive
 - [x] Minimal plugin runtime + plugin migrations hook + plugin_meta tracking
+- [x] Manifest-driven plugin preferences + Preferences → Plugins UI + States snapshot
 
 ### In progress / next
 - [ ] Real plugin UIs (workspaces/tabs) beyond placeholders

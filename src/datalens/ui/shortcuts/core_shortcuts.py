@@ -79,6 +79,22 @@ def register_core_shortcuts(*, controllers: MenuControllers) -> None:
                 title="Edit",
                 commands=(
                     ShortcutCommandSpec(
+                        command_id=ShortcutCommandId("undo"),
+                        title="Undo",
+                        default_chord="Ctrl+Z",
+                        scope=ShortcutScope.WINDOW,
+                        allow_in_text_inputs=False,
+                        consume_event=True,
+                    ),
+                    ShortcutCommandSpec(
+                        command_id=ShortcutCommandId("redo"),
+                        title="Redo",
+                        default_chord="Ctrl+Y",
+                        scope=ShortcutScope.WINDOW,
+                        allow_in_text_inputs=False,
+                        consume_event=True,
+                    ),
+                    ShortcutCommandSpec(
                         command_id=ShortcutCommandId("preferences"),
                         title="Preferences",
                         default_chord="Ctrl+,",
@@ -109,6 +125,8 @@ def register_core_shortcuts(*, controllers: MenuControllers) -> None:
             "open_project": controllers.file.open_project,
             "close_project": controllers.file.close_project,
             "quit": controllers.file.quit_app,
+            "undo": controllers.edit.undo,
+            "redo": controllers.edit.redo,
             "preferences": controllers.edit.open_preferences,
             "keyboard_shortcuts": controllers.edit.open_keyboard_shortcuts,
         },
@@ -116,4 +134,3 @@ def register_core_shortcuts(*, controllers: MenuControllers) -> None:
 
 
 __all__ = ["register_core_shortcuts"]
-

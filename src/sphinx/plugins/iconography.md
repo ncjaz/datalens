@@ -33,6 +33,27 @@ blend with the existing theme and UI shape language.
 - Animated indicators: `datalens/ui/widgets/icons/animated/`
 - Plugin-specific icons: keep them inside the plugin package (next to the widget that owns the control).
 
+## Examples
+
+### Refresh icon (static)
+
+```python
+from datalens.ui.widgets.icons import refresh_icon
+
+button.setIcon(refresh_icon(theme, size=18))
+```
+
+### Refresh icon (animated)
+
+```python
+from datalens.ui.widgets.icons.animated.refresh import RefreshAnimator
+
+animator = RefreshAnimator(theme, size=18)
+animator.start(button)
+...
+animator.stop()
+```
+
 ## Interaction states
 
 When previewing an icon in the UI, confirm:
@@ -45,4 +66,3 @@ Related docs:
 
 - `theming.md` (colors + opacity)
 - `ui_presentation.md` (welcome screen presentation)
-

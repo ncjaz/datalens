@@ -9,6 +9,9 @@ These instructions apply to the V2 source tree rooted at `datalens/src/`.
 - **DDD layering**: keep domain dataclasses pure; put I/O, threading, and Qt in runtime layers.
 - **Avoid monoliths**: keep files small and cohesive; split by feature/package when a file starts accumulating multiple concerns.
 - **Document + verify**: add/maintain docstrings and docs pages; run sanity checks after changes (imports, signatures, smoke paths).
+- **No silent failures**: avoid `except Exception: pass`. If an exception is truly best-effort, it must still be logged (usually `debug` with `exc_info=True`).
+- **Log for diagnosis**: new systems must emit actionable logs at `info` (high-level lifecycle) and `debug` (deep tracing) so crashes/hangs can be diagnosed without guessing.
+  - Prefer structured context via `extra` keys like `operation`, `phase`, and `plugin_id`.
 
 ## V2 folder structure (contract)
 
@@ -36,6 +39,9 @@ Use this structure when deciding where new files belong:
 - **Consistency**: reuse core widgets (`DatalensButton`, `Toggle`, etc.) instead of bespoke QSS.
 - **Iconography**: new icons must follow V2 icon guidelines.
   - See `sphinx/plugins/iconography.md`.
+- **Systemic layouts**: use `auto_size_form_layout()` and `auto_size_layout()` instead of hardcoded `setMinimumWidth()` values.
+  - Use `DatalensResizableSplitter` for user-resizable workspace divisions.
+  - See `sphinx/plugins/layout_utilities.md`.
 
 ## “UI + logic” pairing rule (avoid monolithic widgets)
 
@@ -131,6 +137,41 @@ Design intent:
 - window-focused dispatch (focused top-level window only; supports plugin popouts)
 - mouse + wheel chords supported via Qt event filtering (keyboard still uses Qt-native `QKeySequence` parsing where possible)
 
+### Button + Shortcut Helpers (avoiding code bloat)
+
+When plugins need both UI buttons and keyboard shortcuts for the same action:
+
+**Use `ShortcutButtonBinding` pattern** (keeps registration separate from UI):
+
+```python
+# Plugin service layer (__init__):
+self._save = ShortcutButtonBinding(
+    command=ShortcutButtonCommand(
+        command_id="save", title="Save", default_chord="Ctrl+S"
+    ),
+    callback=self._on_save,
+)
+
+# Plugin register_shortcuts():
+register_shortcut_page_for_buttons(ctx, bindings=[self._save])
+
+# UI layer (workspace widget):
+# Option 1: All-in-one
+btn = self._save.create_button(theme=ctx.app.theme, parent=parent, plugin_id=self.plugin_id)
+
+# Option 2: Manual styling + wire_button_to_binding()
+btn = DatalensButton("Save", theme, ButtonVariant.PRIMARY)
+wire_button_to_binding(btn, binding=self._save, plugin_id=self.plugin_id)
+```
+
+**Why this pattern:**
+- Shortcut registration happens **once** during `register_shortcuts()` (before UI exists)
+- UI can create buttons on-demand (lazy loading, conditional rendering)
+- No duplication of command metadata across service and UI layers
+- Tooltips auto-sync to user overrides via `attach_shortcut_tooltip()`
+
+See: `sphinx/plugins/shortcuts.md` for full guide.
+
 ## Planned: Project service hardening
 
 Project lifecycle (open/close/switch) hardening plan lives at:
@@ -151,3 +192,13 @@ Kiro references:
   - existing V1 behavior (reference)
   - existing V2 patterns
   - upstream docs (Qt, Python, Sphinx, etc.)
+
+## Logging expectations (diagnostics-first)
+
+We want to avoid “it crashed with no logs”.
+
+- Add **info-level** logs for user-visible state transitions (start/stop, open/close, enable/disable).
+- Add **debug-level** logs for troubleshooting in interaction-heavy systems (canvas/tools, device enumeration, event routing).
+- When catching exceptions best-effort, always include tracebacks (`exc_info=True` / `log.exception(...)`).
+- For potentially high-rate paths (mouse move, frame callbacks), avoid logging per-event by default; gate behind debug flags and/or rate-limit.
+- For the EventHub, enable debug logging when diagnosing: subscribe/publish/deliver are logged at `debug` to make “who fired/handled what” traceable.

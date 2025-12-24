@@ -17,8 +17,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from datalens.core.logging import get_logger
 from datalens.domain.ui.theme import DEFAULT_THEME, ThemeSettings
 from datalens.services.settings_store import default_debounced_settings_writer, default_settings_store
+
+log = get_logger(__name__)
 
 
 def _normalize_hex(value: str) -> str | None:
@@ -70,6 +73,11 @@ class ThemePreferencesPage(QWidget):
         colors_form = self._form(colors)
         self._primary = self._color_row(colors_form, "Primary", theme.primary_color)
         self._background = self._color_row(colors_form, "Background", theme.background_color)
+        self._background_secondary = self._optional_color_row(
+            colors_form,
+            "Background (secondary, optional)",
+            getattr(theme, "background_secondary_color", None),
+        )
         self._secondary = self._color_row(colors_form, "Secondary", theme.secondary_color)
         self._tertiary = self._color_row(colors_form, "Tertiary", theme.tertiary_color)
         self._text = self._color_row(colors_form, "Text", theme.text_color)
@@ -119,6 +127,7 @@ class ThemePreferencesPage(QWidget):
         for edit in (
             self._primary.edit,
             self._background.edit,
+            self._background_secondary.edit,
             self._secondary.edit,
             self._tertiary.edit,
             self._text.edit,
@@ -156,6 +165,7 @@ class ThemePreferencesPage(QWidget):
         try:
             app_theme.set_settings(theme)
         except Exception:
+            log.debug("Failed to apply theme to QApplication (best-effort)", exc_info=True)
             return
 
     def _persist(self) -> None:
@@ -188,6 +198,7 @@ class ThemePreferencesPage(QWidget):
         return ThemeSettings(
             primary_color=pick(self._primary.edit, DEFAULT_THEME.primary_color),
             background_color=pick(self._background.edit, DEFAULT_THEME.background_color),
+            background_secondary_color=pick_optional(self._background_secondary.edit),
             secondary_color=pick(self._secondary.edit, DEFAULT_THEME.secondary_color),
             tertiary_color=pick(self._tertiary.edit, DEFAULT_THEME.tertiary_color),
             text_color=pick(self._text.edit, DEFAULT_THEME.text_color),
@@ -209,6 +220,9 @@ class ThemePreferencesPage(QWidget):
     def _reset_defaults(self) -> None:
         self._primary.edit.setText(DEFAULT_THEME.primary_color)
         self._background.edit.setText(DEFAULT_THEME.background_color)
+        self._background_secondary.edit.setText(
+            str(getattr(DEFAULT_THEME, "background_secondary_color", "") or "")
+        )
         self._secondary.edit.setText(DEFAULT_THEME.secondary_color)
         self._tertiary.edit.setText(DEFAULT_THEME.tertiary_color)
         self._text.edit.setText(DEFAULT_THEME.text_color)
@@ -300,4 +314,3 @@ class ThemePreferencesPage(QWidget):
 
 
 __all__ = ["ThemePreferencesPage"]
-

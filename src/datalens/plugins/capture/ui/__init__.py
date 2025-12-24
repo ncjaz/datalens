@@ -1,2 +1,2 @@
-"""Capture plugin UI helpers (placeholder)."""
+from __future__ import annotations
 

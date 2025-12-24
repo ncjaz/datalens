@@ -14,6 +14,7 @@ Pairing:
 from __future__ import annotations
 
 from concurrent.futures import Future
+import time
 from typing import Any
 
 from datalens.core.context import AppContext, ProjectContext, ProjectFlushHook
@@ -28,6 +29,7 @@ from datalens.core.logging import bind_log_context, get_logger
 from datalens.domain.plugin import PluginId
 from datalens.services.db.plugin_db import PluginDb
 from datalens.services.plugins.registry import PluginRecord, PluginRegistry
+from datalens.services.plugins.dependencies import check_plugin_dependencies
 from datalens.services.plugins.runtime import dispatcher
 from datalens.services.plugins.runtime.contracts import PluginAppContext, PluginProjectContext
 from datalens.services.plugins.runtime.loader import load_plugin_instance
@@ -129,6 +131,24 @@ class PluginHost:
             record = self._records.get(plugin_id)
             if record is None:
                 continue
+
+            # V1-style safety: check for missing requirements before importing plugin runtime code.
+            # This is best-effort and intentionally removable (see services/plugins/dependencies.py).
+            try:
+                report = check_plugin_dependencies(record)
+                if report.missing_pip:
+                    self._log.warning(
+                        "Skipping plugin enable due to missing requirements",
+                        extra={
+                            "operation": "plugin_enable",
+                            "phase": "requirements_missing",
+                            "plugin_id": str(plugin_id),
+                            "missing": ", ".join(report.missing_pip),
+                        },
+                    )
+                    continue
+            except Exception:
+                self._log.debug("Failed to check plugin requirements (best-effort)", exc_info=True)
             runtime = PluginRuntime(record=record, instance=load_plugin_instance(record))
             with bind_log_context(plugin_id=str(plugin_id), plugin_phase="enable", hook="on_load"):
                 dispatcher.call_app_hook(

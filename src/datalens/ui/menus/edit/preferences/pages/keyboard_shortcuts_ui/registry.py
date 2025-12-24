@@ -13,7 +13,9 @@ from PySide6.QtWidgets import (
 )
 
 from datalens.ui.shortcuts.binding_editor import ShortcutBindingEditor
+from datalens.ui.widgets.icons.reset_icon import reset_icon
 from datalens.ui.widgets.core.toggle import Toggle, ToggleOption
+from datalens.ui.widgets.core.icon_button import create_icon_button
 
 from .types import BindingKey, RebuildResult
 
@@ -62,6 +64,7 @@ class ShortcutRowsBuilder:
         scope: str,
         default_chord: object,
         effective_chord: object,
+        is_overridden: bool,
         consume_event: bool,
         mode_toggle_default: object,
         mode_toggle_effective: object,
@@ -74,6 +77,11 @@ class ShortcutRowsBuilder:
         label.setToolTip(str(description) if description else "")
 
         editor = ShortcutBindingEditor(initial=effective_chord, show_reset=True, parent=section_box)
+        # Disable reset if the user has not overridden this binding (visual cue).
+        try:
+            editor.set_reset_enabled(bool(is_overridden))
+        except Exception:
+            pass
         consume = QCheckBox("Consume", section_box)
         consume.setChecked(bool(consume_event))
         consume_reset = QPushButton("Reset consume", section_box)
@@ -147,6 +155,8 @@ class ShortcutRowsBuilder:
         scope: str,
         default_chord: object,
         effective_chord: object,
+        is_overridden: bool,
+        uses_modifier_defaults: bool,
         consume_event: bool,
     ) -> None:
         section_box = section_layout.parentWidget()
@@ -156,7 +166,15 @@ class ShortcutRowsBuilder:
         label = QLabel(f"Gesture: {title}", section_box)
         label.setToolTip(str(description) if description else "")
 
-        editor = ShortcutBindingEditor(initial=effective_chord, show_reset=True, parent=section_box)
+        # For "modifier defaults" gestures, use an icon reset button so the UX matches
+        # the global Primary/Secondary modifier concept (disabled when following defaults).
+        show_icon_reset = bool(uses_modifier_defaults)
+        editor = ShortcutBindingEditor(initial=effective_chord, show_reset=not show_icon_reset, parent=section_box)
+        if not show_icon_reset:
+            try:
+                editor.set_reset_enabled(bool(is_overridden))
+            except Exception:
+                pass
         consume = QCheckBox("Consume", section_box)
         consume.setChecked(bool(consume_event))
         consume_reset = QPushButton("Reset consume", section_box)
@@ -166,6 +184,21 @@ class ShortcutRowsBuilder:
         row_layout.setContentsMargins(0, 0, 0, 0)
         row_layout.setSpacing(8)
         row_layout.addWidget(editor, 1)
+        if show_icon_reset:
+            app = QApplication.instance()
+            theme = getattr(app, "app_theme", None) if app is not None else None
+            if theme is not None:
+                reset_btn = create_icon_button(theme, section_box, size=32, icon_size=18, checkable=False)
+                reset_btn.setIcon(reset_icon(theme, size=18))
+                reset_btn.setEnabled(bool(is_overridden))
+                reset_btn.setToolTip("Reset to follow the global Primary/Secondary modifier defaults.")
+                reset_btn.clicked.connect(lambda *_: self._on_binding_reset(plugin_id, "gesture", gesture_id))
+                row_layout.addWidget(reset_btn, 0)
+            else:
+                reset_btn = QPushButton("Reset", section_box)
+                reset_btn.setEnabled(bool(is_overridden))
+                reset_btn.clicked.connect(lambda *_: self._on_binding_reset(plugin_id, "gesture", gesture_id))
+                row_layout.addWidget(reset_btn, 0)
         row_layout.addWidget(QLabel(f"[{scope}]", section_box), 0)
         row_layout.addWidget(consume, 0)
         row_layout.addWidget(consume_reset, 0)
@@ -186,7 +219,10 @@ class ShortcutRowsBuilder:
         self._result.last_saved[key] = str(effective_chord).strip() if isinstance(effective_chord, str) else None
 
         editor.chordChanged.connect(lambda chord, pid=plugin_id, gid=gesture_id: self._on_binding_changed(pid, "gesture", gid, chord))
-        editor.resetRequested.connect(lambda pid=plugin_id, gid=gesture_id: self._on_binding_reset(pid, "gesture", gid))
+        if not show_icon_reset:
+            editor.resetRequested.connect(
+                lambda pid=plugin_id, gid=gesture_id: self._on_binding_reset(pid, "gesture", gid)
+            )
         editor.recordingChanged.connect(lambda active: self._on_recording_changed(bool(active)))
         consume.toggled.connect(lambda checked, pid=plugin_id, gid=gesture_id: self._on_consume_changed(pid, "gesture", gid, bool(checked)))
         consume_reset.clicked.connect(lambda *_: self._on_consume_reset(plugin_id, "gesture", gesture_id))

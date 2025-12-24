@@ -48,6 +48,20 @@ class WelcomeWindow(QDialog):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+        # Ensure the welcome window uses normal OS window chrome (min/max/close).
+        # QDialog defaults can vary per platform/theme; make this explicit so the
+        # window behaves like a first-class top-level window (V1-style).
+        flags = self.windowFlags()
+        flags &= ~Qt.FramelessWindowHint
+        self.setWindowFlags(
+            flags
+            | Qt.Window
+            | Qt.WindowTitleHint
+            | Qt.WindowSystemMenuHint
+            | Qt.WindowMinimizeButtonHint
+            | Qt.WindowMaximizeButtonHint
+            | Qt.WindowCloseButtonHint
+        )
         self.setWindowTitle("Welcome to DataLens")
         self.setModal(True)
         # This dialog is a short-lived launcher; ensure it is destroyed promptly

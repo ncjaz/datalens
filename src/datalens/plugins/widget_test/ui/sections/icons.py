@@ -5,12 +5,21 @@ from PySide6.QtWidgets import QGridLayout, QLabel, QToolButton, QVBoxLayout, QWi
 
 from datalens.ui.theme.app_theme import AppTheme
 from datalens.ui.widgets.icons.animated.autodiscovery import AutoDiscoveryAnimator
+from datalens.ui.widgets.icons.animated.icon_animator import ButtonIconAnimator
+from datalens.ui.widgets.icons.animated.refresh import RefreshAnimator
 from datalens.ui.widgets.icons.annotation_toggle_icon import annotation_toggle_icon
+from datalens.ui.widgets.icons.auto_icon import auto_icon
 from datalens.ui.widgets.icons.autodiscovery_icon import autodiscovery_icon
 from datalens.ui.widgets.icons.chevron_icon import chevron_icon
+from datalens.ui.widgets.icons.error_icon import error_icon
 from datalens.ui.widgets.icons.eye_icon import eye_icon
+from datalens.ui.widgets.icons.info_icon import info_icon
 from datalens.ui.widgets.icons.lock_icon import lock_icon
+from datalens.ui.widgets.icons.refresh_icon import refresh_icon
+from datalens.ui.widgets.icons.reset_icon import reset_icon
 from datalens.ui.widgets.icons.settings_icon import settings_icon
+from datalens.ui.widgets.icons.success_icon import success_icon
+from datalens.ui.widgets.icons.warning_icon import warning_icon
 
 from .common import make_section_box
 
@@ -19,7 +28,7 @@ def build_icons_section(
     parent: QWidget,
     *,
     theme: AppTheme,
-    animators_out: list[AutoDiscoveryAnimator],
+    animators_out: list[ButtonIconAnimator],
 ) -> QWidget:
     box = make_section_box(parent, "Icons / Glyphs")
     layout = QGridLayout(box)
@@ -29,8 +38,16 @@ def build_icons_section(
 
     icons: list[tuple[str, object]] = [
         ("Settings (themed)", settings_icon(theme, size=24)),
+        ("Success (V2)", success_icon(theme, size=24)),
+        ("Warning (!)", warning_icon(theme, size=24)),
+        ("Error (X)", error_icon(theme, size=24)),
+        ("Info (i)", info_icon(theme, size=24)),
         ("AutoDiscovery (V1)", autodiscovery_icon(theme, size=24)),
         ("AutoDiscovery (Animated)", autodiscovery_icon(theme, size=24)),
+        ("Refresh (themed)", refresh_icon(theme, size=24)),
+        ("Refresh (Animated)", refresh_icon(theme, size=24)),
+        ("Reset (V2)", reset_icon(theme, size=24)),
+        ("AUTO (V2)", auto_icon(theme, size=24)),
         ("Chevron Up (V1)", chevron_icon(theme, direction="up", size=24)),
         ("Chevron Down (V1)", chevron_icon(theme, direction="down", size=24)),
         ("Chevron Left (V1)", chevron_icon(theme, direction="left", size=24)),
@@ -78,6 +95,12 @@ def build_icons_section(
                 animator = AutoDiscoveryAnimator(theme, size=24, parent=cell)
                 animator.start(button)
                 animators_out.append(animator)
+        if name == "Refresh (Animated)":
+            button = cell.findChild(QToolButton)
+            if button is not None:
+                animator = RefreshAnimator(theme, size=24, parent=cell)
+                animator.start(button)
+                animators_out.append(animator)
 
     for c in range(cols):
         layout.setColumnStretch(c, 1)
@@ -85,4 +108,3 @@ def build_icons_section(
 
 
 __all__ = ["build_icons_section"]
-
