@@ -88,13 +88,68 @@ def apply_realsense_profiles(self, profiles: tuple[RealSenseColorProfile, ...]) 
     self._rs_profiles_by_format = {k: tuple(v) for k, v in by_format.items()}
     self._rs_profile_lookup = lookup
 
-    # Default selection mirrors V1 behavior:
-    # - prefer RGB8 if available
-    # - choose the largest resolution, then the highest FPS.
-    target = self._select_default_realsense_profile(prior=self._rs_selected_profile)
-    target_fmt = str(getattr(target, "format", "") or "").strip().lower() if target is not None else ""
-    target_res = (int(target.width), int(target.height)) if target is not None else None
-    target_fps = int(target.fps) if target is not None else None
+    # Load saved profile preference for this device (if available)
+    try:
+        device = self._device_combo.currentData()
+        device_id = str(getattr(device, "serial", "") or "").strip()
+    except Exception:
+        device_id = ""
+
+    saved_fmt, saved_res, saved_fps = None, None, None
+    if device_id:
+        try:
+            saved_fmt, saved_res, saved_fps = self._load_realsense_profile_preference(device_id)
+            if saved_fmt or saved_res or saved_fps:
+                log.debug(
+                    "Loaded RealSense profile preference",
+                    extra={
+                        "operation": "capture",
+                        "phase": "load_rs_profile_pref",
+                        "device_id": device_id,
+                        "format": saved_fmt,
+                        "resolution": saved_res,
+                        "fps": saved_fps,
+                    },
+                )
+        except Exception:
+            log.debug(
+                "Failed to load RealSense profile preference (best-effort)",
+                exc_info=True,
+                extra={"operation": "capture", "phase": "load_rs_profile_pref_error", "device_id": device_id},
+            )
+
+    # Determine target profile: prefer saved preference, fall back to smart default
+    target = None
+    target_fmt = None
+    target_res = None
+    target_fps = None
+
+    # Try to match saved preference
+    if saved_fmt and saved_res and saved_fps:
+        key = (saved_fmt.lower(), saved_res[0], saved_res[1], saved_fps)
+        target = lookup.get(key)
+        if target:
+            target_fmt = saved_fmt.lower()
+            target_res = saved_res
+            target_fps = saved_fps
+            log.debug(
+                "Using saved RealSense profile",
+                extra={
+                    "operation": "capture",
+                    "phase": "use_saved_rs_profile",
+                    "device_id": device_id,
+                    "format": target_fmt,
+                    "resolution": target_res,
+                    "fps": target_fps,
+                },
+            )
+
+    # Fall back to smart default if no saved preference or saved preference not available
+    if not target:
+        target = self._select_default_realsense_profile(prior=self._rs_selected_profile)
+        target_fmt = str(getattr(target, "format", "") or "").strip().lower() if target is not None else ""
+        target_res = (int(target.width), int(target.height)) if target is not None else None
+        target_fps = int(target.fps) if target is not None else None
 
     formats = sorted(self._rs_profiles_by_format.keys())
     preferred_fmt = self._pick_preferred_realsense_format(formats)
@@ -159,6 +214,24 @@ def update_selected_rs_profile(self) -> None:
         return
     key = (fmt, int(res[0]), int(res[1]), int(fps))
     self._rs_selected_profile = self._rs_profile_lookup.get(key)
+
+    # Persist the selection (capture workspace owns undo/persistence semantics).
+    try:
+        device = self._device_combo.currentData()
+        device_id = str(getattr(device, "serial", "") or "").strip()
+        if device_id and fmt and res and fps is not None:
+            self._on_realsense_profile_selected(
+                device_id=device_id,
+                fmt=fmt,
+                resolution=(int(res[0]), int(res[1])),
+                fps=int(fps),
+            )
+    except Exception:
+        log.debug(
+            "Failed to save RealSense profile preference (best-effort)",
+            exc_info=True,
+            extra={"operation": "capture", "phase": "save_rs_profile_pref_error"},
+        )
 
 
 def populate_rs_resolutions(self, fmt: str, *, selected_resolution: tuple[int, int] | None) -> None:
@@ -250,6 +323,14 @@ def select_default_realsense_profile(self, *, prior: RealSenseColorProfile | Non
 def rebuild_rgb_settings_from_specs(self, specs: tuple[CameraOptionSpec, ...], *, serial: str) -> None:
     self._clear_form_layout(self._rgb_options_layout)
     self._rs_option_widgets.clear()
+    try:
+        self._rs_option_labels.clear()
+    except Exception:
+        pass
+    try:
+        self._camera_option_ui_setters.clear()
+    except Exception:
+        pass
 
     entries = [s for s in (specs or ()) if isinstance(s, CameraOptionSpec) and s.sensor == "rgb"]
     if not entries:
@@ -259,41 +340,271 @@ def rebuild_rgb_settings_from_specs(self, specs: tuple[CameraOptionSpec, ...], *
         self._rgb_options_layout.addRow("", label)
         return
 
+    # Organize settings: auto-related first, then manual settings (matching webcam UX)
+    # Auto-related pairs: (manual_setting_id, auto_checkbox_id)
+    auto_pairs: dict[str, str] = {
+        "exposure": "enable_auto_exposure",
+        "white_balance": "enable_auto_white_balance",
+    }
+
+    by_id: dict[str, CameraOptionSpec] = {str(s.id): s for s in entries}
+
+    def _register_ui(opt_id: str, label: str, setter) -> None:
+        try:
+            self._rs_option_labels[str(opt_id)] = str(label)
+        except Exception:
+            pass
+        try:
+            self._camera_option_ui_setters[str(opt_id)] = setter
+        except Exception:
+            pass
+
+    # Priority order: manual settings that have auto toggles come first
+    priority_ids: list[str] = []
+    for manual_id in auto_pairs.keys():
+        if manual_id in by_id:
+            priority_ids.append(manual_id)
+
+    # Build ordered list: priority settings first, then remaining
+    ordered: list[CameraOptionSpec] = []
+    seen: set[str] = set()
+
+    for spec_id in priority_ids:
+        spec = by_id.get(spec_id)
+        if spec is not None and spec_id not in seen:
+            ordered.append(spec)
+            seen.add(spec_id)
+            # Mark the auto toggle as seen so it doesn't get added separately
+            auto_id = auto_pairs.get(spec_id)
+            if auto_id:
+                seen.add(auto_id)
+
+    # Add remaining settings (exclude auto toggles that were paired)
     for spec in entries:
+        if str(spec.id) not in seen:
+            ordered.append(spec)
+            seen.add(str(spec.id))
+
+    # Helper to wrap a manual control with an auto button (matching webcam UX)
+    def _wrap_with_auto_button(manual_widget: QWidget, manual_spec: CameraOptionSpec, auto_spec: CameraOptionSpec) -> QWidget:
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QHBoxLayout, QWidget
+        from datalens.ui.widgets.core import create_icon_button
+        from datalens.ui.widgets.icons.auto_icon import auto_icon
+
+        row = QWidget(self._rgb_options_widget)
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.setSpacing(6)
+
+        row_layout.addWidget(manual_widget, 1)
+
+        btn = create_icon_button(self._theme, row, checkable=True)
+        btn.setObjectName("CaptureAutoOptionButton")
+
+        def update_icon(checked_state: bool) -> None:
+            bg = self._theme.confirm_color if checked_state else self._theme.cancel_color
+            btn.setIcon(auto_icon(self._theme, size=18, background_color=bg))
+
+        def update_tooltip(checked_state: bool) -> None:
+            state = "Enabled" if checked_state else "Disabled"
+            action = "disable" if checked_state else "enable"
+            btn.setToolTip(f"Auto: {state}\nClick to {action} auto")
+
+        # Set initial state from auto spec
+        stored_auto = None
+        try:
+            stored_auto = self._load_device_preference(serial, f"rs_rgb_option/{str(auto_spec.id)}", default=None)
+        except Exception:
+            stored_auto = None
+
+        auto_enabled = bool(stored_auto) if stored_auto is not None else (bool(auto_spec.current) if auto_spec.current is not None else True)
+        btn.setChecked(auto_enabled)
+        manual_widget.setEnabled(not auto_enabled)
+        update_icon(auto_enabled)
+        update_tooltip(auto_enabled)
+
+        def on_toggled(checked_state: bool) -> None:
+            from PySide6.QtGui import QUndoStack
+
+            stack = getattr(self, "undo_stack", None)
+            if not checked_state and isinstance(stack, QUndoStack):
+                stack.beginMacro(f"Disable auto {manual_spec.label}")
+                try:
+                    self._on_realsense_rgb_option_changed(serial=serial, option_id=str(auto_spec.id), value=bool(checked_state))
+                    if isinstance(manual_widget, DatalensSliderOption):
+                        try:
+                            self._on_realsense_rgb_option_changed(
+                                serial=serial, option_id=str(manual_spec.id), value=float(manual_widget.value())
+                            )
+                        except Exception:
+                            pass
+                finally:
+                    stack.endMacro()
+            else:
+                self._on_realsense_rgb_option_changed(serial=serial, option_id=str(auto_spec.id), value=bool(checked_state))
+            manual_widget.setEnabled(not checked_state)
+            update_icon(checked_state)
+            update_tooltip(checked_state)
+
+        btn.toggled.connect(on_toggled)
+        row_layout.addWidget(btn, 0, alignment=Qt.AlignVCenter)
+
+        # Store both widgets for state management
+        self._rs_option_widgets[str(manual_spec.id)] = manual_widget
+        self._rs_option_widgets[str(auto_spec.id)] = btn
+
+        manual_id = str(manual_spec.id)
+        auto_id = str(auto_spec.id)
+
+        def _manual_setter(v: object, w=manual_widget) -> None:
+            if isinstance(w, DatalensSliderOption):
+                try:
+                    fv = float(v)
+                except Exception:
+                    return
+                try:
+                    w.blockSignals(True)
+                    w.setValue(float(fv))
+                finally:
+                    w.blockSignals(False)
+
+        _register_ui(manual_id, str(manual_spec.label), _manual_setter)
+
+        def _auto_setter(v: object, w=btn, manual=manual_widget) -> None:
+            checked_state = bool(v)
+            try:
+                w.blockSignals(True)
+                w.setChecked(bool(checked_state))
+            finally:
+                w.blockSignals(False)
+            manual.setEnabled(bool(not checked_state))
+            update_icon(bool(checked_state))
+            update_tooltip(bool(checked_state))
+
+        _register_ui(auto_id, str(auto_spec.label), _auto_setter)
+
+        try:
+            manual_setting = f"rs_rgb_option/{manual_id}"
+            manual_pref_key = f"devices/{str(serial).strip()}/{manual_setting}"
+            if isinstance(manual_widget, DatalensSliderOption):
+                self._cache_set(manual_pref_key, float(manual_widget.value()))
+        except Exception:
+            pass
+
+        try:
+            auto_setting = f"rs_rgb_option/{auto_id}"
+            auto_pref_key = f"devices/{str(serial).strip()}/{auto_setting}"
+            self._cache_set(auto_pref_key, bool(auto_enabled))
+        except Exception:
+            pass
+
+        return row
+
+    # Build UI rows in priority order
+    for spec in ordered:
+        # Check if this manual setting has an auto toggle
+        auto_id = auto_pairs.get(str(spec.id))
+        auto_spec = by_id.get(auto_id) if auto_id else None
+
         if spec.kind == "bool":
+            opt_id = str(spec.id)
+            setting = f"rs_rgb_option/{opt_id}"
+            stored = None
+            try:
+                stored = self._load_device_preference(serial, setting, default=None)
+            except Exception:
+                stored = None
+            initial = bool(stored) if stored is not None else (bool(spec.current) if spec.current is not None else False)
+
             cb = DatalensCheckBox("", self._theme, self._rgb_options_widget)
-            if spec.current is not None:
-                cb.setChecked(bool(spec.current))
+            cb.setChecked(bool(initial))
             cb.toggled.connect(
-                lambda checked, opt_id=str(spec.id): self._on_realsense_rgb_option_changed(
-                    serial=serial, option_id=opt_id, value=bool(checked)
-                )
+                lambda checked, oid=opt_id: self._on_realsense_rgb_option_changed(serial=serial, option_id=oid, value=bool(checked))
             )
             self._rgb_options_layout.addRow(str(spec.label), cb)
-            self._rs_option_widgets[str(spec.id)] = cb
+            self._rs_option_widgets[opt_id] = cb
+
+            def _setter(v: object, w=cb) -> None:
+                try:
+                    w.blockSignals(True)
+                    w.setChecked(bool(v))
+                finally:
+                    w.blockSignals(False)
+
+            _register_ui(opt_id, str(spec.label), _setter)
+            try:
+                pref_key = f"devices/{str(serial).strip()}/{setting}"
+                self._cache_set(pref_key, bool(initial))
+            except Exception:
+                pass
             continue
 
         if spec.kind == "enum":
+            opt_id = str(spec.id)
+            setting = f"rs_rgb_option/{opt_id}"
+            stored = None
+            try:
+                stored = self._load_device_preference(serial, setting, default=None)
+            except Exception:
+                stored = None
+
             combo = QComboBox(self._rgb_options_widget)
             for value, label in spec.enum_items:
                 combo.addItem(str(label), int(value))
-            if spec.current is not None:
-                # Best-effort: select by value.
+            initial_value = None
+            try:
+                initial_value = int(stored) if stored is not None else (int(spec.current) if spec.current is not None else None)
+            except Exception:
+                initial_value = None
+            if initial_value is not None:
                 for idx in range(combo.count()):
-                    if combo.itemData(idx) == int(spec.current):
+                    if combo.itemData(idx) == int(initial_value):
                         combo.setCurrentIndex(idx)
                         break
             combo.currentIndexChanged.connect(
-                lambda _=0, opt_id=str(spec.id), w=combo: self._on_realsense_rgb_option_changed(
-                    serial=serial, option_id=opt_id, value=int(w.currentData())
-                )
+                lambda _=0, oid=opt_id, w=combo: self._on_realsense_rgb_option_changed(serial=serial, option_id=oid, value=int(w.currentData()))
             )
             self._rgb_options_layout.addRow(str(spec.label), combo)
-            self._rs_option_widgets[str(spec.id)] = combo
+            self._rs_option_widgets[opt_id] = combo
+
+            def _setter(v: object, w=combo) -> None:
+                try:
+                    target = int(v)
+                except Exception:
+                    return
+                try:
+                    w.blockSignals(True)
+                    for idx in range(w.count()):
+                        if w.itemData(idx) == target:
+                            w.setCurrentIndex(idx)
+                            break
+                finally:
+                    w.blockSignals(False)
+
+            _register_ui(opt_id, str(spec.label), _setter)
+            try:
+                if initial_value is not None:
+                    pref_key = f"devices/{str(serial).strip()}/{setting}"
+                    self._cache_set(pref_key, int(initial_value))
+            except Exception:
+                pass
             continue
 
         if spec.kind == "float" and spec.range is not None:
             mn, mx, step, default = spec.range
+            opt_id = str(spec.id)
+            setting = f"rs_rgb_option/{opt_id}"
+            stored = None
+            try:
+                stored = self._load_device_preference(serial, setting, default=None)
+            except Exception:
+                stored = None
+            initial = None
+            try:
+                initial = float(stored) if stored is not None else (float(spec.current) if spec.current is not None else None)
+            except Exception:
+                initial = None
             slider = DatalensSliderOption(
                 self._theme,
                 self._rgb_options_widget,
@@ -302,15 +613,38 @@ def rebuild_rgb_settings_from_specs(self, specs: tuple[CameraOptionSpec, ...], *
                 float(step) if float(step) != 0 else 1.0,
                 default_value=float(default),
             )
-            if spec.current is not None:
-                slider.setValue(float(spec.current))
+            if initial is not None:
+                slider.setValue(float(initial))
             slider.valueChanged.connect(
-                lambda value, opt_id=str(spec.id): self._on_realsense_rgb_option_changed(
-                    serial=serial, option_id=opt_id, value=float(value)
-                )
+                lambda value, oid=opt_id: self._on_realsense_rgb_option_changed(serial=serial, option_id=oid, value=float(value))
             )
-            self._rgb_options_layout.addRow(str(spec.label), slider)
-            self._rs_option_widgets[str(spec.id)] = slider
+
+            # If this manual setting has an auto toggle, wrap with auto button
+            if auto_spec is not None:
+                wrapped = _wrap_with_auto_button(slider, spec, auto_spec)
+                self._rgb_options_layout.addRow(str(spec.label), wrapped)
+            else:
+                self._rgb_options_layout.addRow(str(spec.label), slider)
+                self._rs_option_widgets[opt_id] = slider
+
+                def _setter(v: object, w=slider) -> None:
+                    try:
+                        fv = float(v)
+                    except Exception:
+                        return
+                    try:
+                        w.blockSignals(True)
+                        w.setValue(float(fv))
+                    finally:
+                        w.blockSignals(False)
+
+                _register_ui(opt_id, str(spec.label), _setter)
+                try:
+                    if initial is not None:
+                        pref_key = f"devices/{str(serial).strip()}/{setting}"
+                        self._cache_set(pref_key, float(initial))
+                except Exception:
+                    pass
             continue
 
         label = QLabel("Unsupported", self._rgb_options_widget)
@@ -321,6 +655,15 @@ def rebuild_rgb_settings_from_specs(self, specs: tuple[CameraOptionSpec, ...], *
 
 
 def apply_auto_option_states(self) -> None:
+    """
+    Apply auto option states to manual controls.
+
+    Note: For manual settings with auto buttons (exposure, white_balance),
+    the enable/disable logic is handled directly in the auto button wrapper.
+    This function handles any remaining standalone auto checkboxes.
+    """
+    from PySide6.QtWidgets import QPushButton
+
     mapping = {
         "enable_auto_exposure": "exposure",
         "enable_auto_white_balance": "white_balance",
@@ -332,7 +675,11 @@ def apply_auto_option_states(self) -> None:
             continue
         try:
             enabled = True
-            if isinstance(auto_w, DatalensCheckBox):
+            # Auto button (new UI pattern)
+            if isinstance(auto_w, QPushButton) and auto_w.isCheckable():
+                enabled = not bool(auto_w.isChecked())
+            # Auto checkbox (legacy pattern)
+            elif isinstance(auto_w, DatalensCheckBox):
                 enabled = not bool(auto_w.isChecked())
             manual_w.setEnabled(bool(enabled))
         except Exception:

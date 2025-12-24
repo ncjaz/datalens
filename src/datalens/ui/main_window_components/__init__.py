@@ -9,12 +9,14 @@ from .app_context import try_get_app_context
 from .project_actions import ProjectActionsController
 from .status_bar import StatusBarController
 from .ui_state import MainWindowUiStateController
+from .undo_redo import UndoRedoController
 from .workspaces import WorkspacesController
 
 __all__ = [
     "MainWindowUiStateController",
     "ProjectActionsController",
     "StatusBarController",
+    "UndoRedoController",
     "WorkspacesController",
     "try_get_app_context",
 ]

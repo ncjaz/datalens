@@ -77,7 +77,11 @@ def browse_output_dir(self) -> None:
     if not chosen:
         return
     self._output_dir_edit.setText(str(chosen))
-    self._refresh_controls()
+    handler = getattr(self, "_on_output_dir_changed", None)
+    if callable(handler):
+        handler()
+    else:
+        self._refresh_controls()
 
 
 def on_capture_clicked(self) -> None:

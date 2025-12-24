@@ -65,7 +65,10 @@ def on_preferences_changed(self, keys: set[str]) -> None:
         try:
             raw = prefs.get(_CAPTURE_PLUGIN_ID, _SETTING_SCAN_MODE, default=_DEFAULT_SCAN_MODE)
             mode = str(raw) if raw in ("manual", "auto") else _DEFAULT_SCAN_MODE
-            if mode != self._scan_mode:
+            apply = getattr(self, "_apply_scan_mode", None)
+            if callable(apply):
+                apply(mode, persist=False)
+            elif mode != self._scan_mode:
                 self._scan_mode = mode
                 sync_auto_refresh_from_sources(self, immediate=True)
         except Exception:
@@ -329,4 +332,3 @@ __all__ = [
     "sync_auto_refresh_from_sources",
     "update_refresh_tooltip",
 ]
-

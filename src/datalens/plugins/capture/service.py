@@ -83,6 +83,7 @@ class CaptureService:
         self._latest: FrameBundle | None = None
         self._realsense_profile: RealSenseColorProfile | None = None
         self._realsense_enable_depth: bool = False
+        self._realsense_align_depth_to_color: bool = False
         self._rs_option_updates: "queue.Queue[tuple[str, str, float]]" = queue.Queue()
         self._rs_pending_options: dict[str, dict[str, float]] = {}
         self._rs_profiles_cache: dict[str, tuple[RealSenseColorProfile, ...]] = {}
@@ -727,31 +728,60 @@ class CaptureService:
         """
         serial_s = str(serial or "").strip()
         if not serial_s:
+            log.debug(
+                "RealSense profile enumeration skipped: no serial provided",
+                extra={"operation": "capture", "phase": "rs_profiles_no_serial"},
+            )
             return ()
         cached = self._rs_profiles_cache.get(serial_s)
         if cached is not None:
+            log.debug(
+                "Using cached RealSense profiles",
+                extra={"operation": "capture", "phase": "rs_profiles_cache_hit", "serial": serial_s, "count": len(cached)},
+            )
             return cached
 
         try:
             import pyrealsense2 as rs  # type: ignore
-        except Exception:
+        except Exception as exc:
+            log.warning(
+                "pyrealsense2 not available - cannot enumerate profiles",
+                exc_info=True,
+                extra={"operation": "capture", "phase": "rs_profiles_import_error", "serial": serial_s, "error": str(exc)},
+            )
             return ()
 
         try:
             ctx = rs.context()
             target = None
-            for dev in ctx.query_devices():
+            devices = list(ctx.query_devices())
+            log.debug(
+                "Querying RealSense devices for profile enumeration",
+                extra={"operation": "capture", "phase": "rs_query_devices", "serial": serial_s, "device_count": len(devices)},
+            )
+            for dev in devices:
                 try:
-                    if str(dev.get_info(rs.camera_info.serial_number)) == serial_s:
+                    dev_serial = str(dev.get_info(rs.camera_info.serial_number))
+                    if dev_serial == serial_s:
                         target = dev
+                        log.debug(
+                            "Found matching RealSense device",
+                            extra={"operation": "capture", "phase": "rs_device_found", "serial": serial_s},
+                        )
                         break
                 except Exception:
                     continue
             if target is None:
+                log.warning(
+                    "RealSense device not found by serial number",
+                    extra={"operation": "capture", "phase": "rs_device_not_found", "serial": serial_s, "available_devices": len(devices)},
+                )
                 return ()
 
             profiles: dict[str, RealSenseColorProfile] = {}
+            sensor_count = 0
             for sensor in getattr(target, "sensors", []):
+                sensor_count += 1
                 try:
                     sp = sensor.get_stream_profiles()
                 except Exception:
@@ -787,10 +817,21 @@ class CaptureService:
 
             out = tuple(sorted(profiles.values(), key=lambda p: (p.width, p.height, p.fps, p.format)))
             self._rs_profiles_cache[serial_s] = out
+            log.info(
+                "RealSense profile enumeration completed",
+                extra={
+                    "operation": "capture",
+                    "phase": "rs_profiles_success",
+                    "serial": serial_s,
+                    "sensor_count": sensor_count,
+                    "profile_count": len(out),
+                    "profiles": [p.key for p in out] if out else [],
+                },
+            )
             return out
         except Exception:
-            log.debug(
-                "RealSense profile enumeration failed (best-effort)",
+            log.warning(
+                "RealSense profile enumeration failed",
                 exc_info=True,
                 extra={"operation": "capture", "phase": "rs_profiles_error", "serial": serial_s},
             )
@@ -996,6 +1037,7 @@ class CaptureService:
         device: CameraDevice | None,
         realsense_profile: RealSenseColorProfile | None = None,
         enable_depth: bool = False,
+        align_depth_to_color: bool = False,
     ) -> bool:
         """
         Start capture from `device` in a background thread.
@@ -1012,6 +1054,7 @@ class CaptureService:
             self._stop.clear()
             self._realsense_profile = realsense_profile
             self._realsense_enable_depth = bool(enable_depth)
+            self._realsense_align_depth_to_color = bool(align_depth_to_color)
 
             thread = threading.Thread(
                 target=self._run,
@@ -1030,6 +1073,7 @@ class CaptureService:
                 "device_kind": (self._device.kind.value if self._device else None),
                 "rs_profile": (self._realsense_profile.key if self._realsense_profile else None),
                 "rs_depth": bool(self._realsense_enable_depth),
+                "rs_align_depth": bool(self._realsense_align_depth_to_color),
             },
         )
         return True
@@ -1055,11 +1099,12 @@ class CaptureService:
             device = self._device
             rs_profile = self._realsense_profile
             rs_depth = bool(self._realsense_enable_depth)
+            rs_align = bool(self._realsense_align_depth_to_color)
         if device is None:
             device = CameraDevice(device_id="cv_0", display_name="[CV] Webcam 0", kind=CameraKind.WEBCAM, device_index=0)
 
         if device.kind is CameraKind.REALSENSE:
-            self._run_realsense(device=device, profile=rs_profile, enable_depth=rs_depth)
+            self._run_realsense(device=device, profile=rs_profile, enable_depth=rs_depth, align_depth_to_color=rs_align)
             return
 
         try:
@@ -1180,7 +1225,7 @@ class CaptureService:
                 extra={"operation": "capture", "phase": "stopped", "device_index": idx, "device_id": device.device_id},
             )
 
-    def _run_realsense(self, *, device: CameraDevice, profile: RealSenseColorProfile | None, enable_depth: bool) -> None:
+    def _run_realsense(self, *, device: CameraDevice, profile: RealSenseColorProfile | None, enable_depth: bool, align_depth_to_color: bool = False) -> None:
         try:
             import numpy as np  # type: ignore
             import pyrealsense2 as rs  # type: ignore
@@ -1287,6 +1332,17 @@ class CaptureService:
         except Exception:
             color_sensor = None
 
+        # Create alignment object if depth alignment is requested.
+        align = None
+        if depth_enabled and align_depth_to_color:
+            try:
+                align = rs.align(rs.stream.color)
+            except Exception:
+                log.info(
+                    "RealSense depth alignment setup failed (best-effort)",
+                    extra={"operation": "capture", "phase": "rs_align_setup_failed", "serial": serial},
+                )
+
         with self._lock:
             self._status = "running"
             self._error = None
@@ -1299,6 +1355,7 @@ class CaptureService:
                 "device_id": device.device_id,
                 "serial": serial,
                 "depth_enabled": bool(depth_enabled),
+                "depth_aligned": bool(align is not None),
             },
         )
 
@@ -1366,6 +1423,14 @@ class CaptureService:
                     frames = pipeline.wait_for_frames(timeout_ms=5000)
                 except Exception:
                     continue
+
+                # Apply alignment if requested (aligns depth to color).
+                if align is not None:
+                    try:
+                        frames = align.process(frames)
+                    except Exception:
+                        # Alignment failed; continue with unaligned frames.
+                        pass
 
                 color_frame = frames.get_color_frame()
                 if not color_frame:

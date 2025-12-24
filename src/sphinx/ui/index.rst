@@ -7,3 +7,4 @@ UI
    menus
    widgets
    loader
+   canvas

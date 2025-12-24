@@ -10,6 +10,7 @@ from PySide6.QtGui import QImage, QPixmap
 from datalens.core.logging import get_logger
 from datalens.ui.widgets.core.buttons import ButtonVariant
 
+from . import device_preferences
 from ..service import CameraDevice, CameraKind
 
 log = get_logger(__name__)
@@ -158,14 +159,18 @@ def on_start_stop_clicked(self) -> None:
         self._set_auto_refresh(False, immediate=False)
     if getattr(device, "kind", None) == CameraKind.REALSENSE:
         enable_depth = False
+        align_depth = False
         try:
-            enable_depth = bool(self._rs_depth_checkbox.isChecked())
+            enable_depth = bool(self._rs_depth_toggle.current_id == "enabled")
+            align_depth = bool(self._rs_depth_align_toggle.current_id == "aligned")
         except Exception:
             enable_depth = False
+            align_depth = False
         ok = self._service.start_async(
             device=device,
             realsense_profile=self._rs_selected_profile,
             enable_depth=enable_depth,
+            align_depth_to_color=align_depth,
         )
     else:
         ok = self._service.start_async(device=device)
@@ -196,7 +201,9 @@ def on_device_selected(self) -> None:
         self._rs_fps_label,
         self._rs_fps_combo,
         self._rs_depth_label,
-        self._rs_depth_checkbox,
+        self._rs_depth_toggle,
+        self._rs_depth_align_label,
+        self._rs_depth_align_toggle,
     ):
         w.setVisible(bool(is_rs))
 
@@ -218,21 +225,83 @@ def on_device_selected(self) -> None:
             self._rs_fps_combo.blockSignals(False)
 
         try:
-            self._rs_depth_checkbox.blockSignals(True)
-            self._rs_depth_checkbox.setChecked(False)
+            self._rs_depth_toggle.blockSignals(True)
+            self._rs_depth_toggle.set_current_id("disabled", emit=False)
         finally:
-            self._rs_depth_checkbox.blockSignals(False)
+            self._rs_depth_toggle.blockSignals(False)
 
         self._rebuild_rgb_settings_placeholder()
-        if getattr(self, "_stream_mode", "rgb") == "depth":
+        current_mode = getattr(self, "_stream_mode", "rgb")
+        if current_mode in ("depth", "overlay"):
             self._stream_mode_toggle.set_current_id("rgb", emit=False)
-            self._set_stream_mode("rgb")
+            self._set_stream_mode("rgb", record_undo=False)
         return
 
-    try:
-        self._settings_group.setTitle("RGB Settings")
-    except Exception:
-        pass
+    # Load saved colormap and depth alignment preferences for this device
+    if serial:
+        try:
+            # Load colormap preference
+            saved_colormap = self._load_colormap_preference(serial)
+            try:
+                self._depth_colormap_combo.blockSignals(True)
+                for idx in range(self._depth_colormap_combo.count()):
+                    if str(self._depth_colormap_combo.itemData(idx) or "") == saved_colormap:
+                        self._depth_colormap_combo.setCurrentIndex(idx)
+                        log.debug(
+                            "Loaded colormap preference",
+                            extra={
+                                "operation": "capture",
+                                "phase": "load_colormap_pref",
+                                "device_id": serial,
+                                "colormap": saved_colormap,
+                            },
+                        )
+                        break
+            finally:
+                self._depth_colormap_combo.blockSignals(False)
+            try:
+                self._cache_set(device_preferences.get_device_preference_key(serial, "colormap"), saved_colormap)
+            except Exception:
+                pass
+
+            # Load depth alignment preference
+            saved_alignment = self._load_depth_alignment_preference(serial)
+            try:
+                self._rs_depth_align_toggle.blockSignals(True)
+                self._rs_depth_align_toggle.set_current_id(saved_alignment, emit=False)
+                log.debug(
+                    "Loaded depth alignment preference",
+                    extra={
+                        "operation": "capture",
+                        "phase": "load_depth_alignment_pref",
+                        "device_id": serial,
+                        "alignment": saved_alignment,
+                    },
+                )
+            finally:
+                self._rs_depth_align_toggle.blockSignals(False)
+            try:
+                self._cache_set(device_preferences.get_device_preference_key(serial, "depth_alignment"), saved_alignment)
+            except Exception:
+                pass
+
+            # Load depth stream enabled preference
+            saved_depth_enabled = str(self._load_device_preference(serial, "rs_depth_enabled", default="disabled") or "disabled")
+            try:
+                self._rs_depth_toggle.blockSignals(True)
+                self._rs_depth_toggle.set_current_id(saved_depth_enabled, emit=False)
+            finally:
+                self._rs_depth_toggle.blockSignals(False)
+            try:
+                self._cache_set(device_preferences.get_device_preference_key(serial, "rs_depth_enabled"), saved_depth_enabled)
+            except Exception:
+                pass
+        except Exception:
+            log.debug(
+                "Failed to load device preferences (best-effort)",
+                exc_info=True,
+                extra={"operation": "capture", "phase": "load_device_prefs_error", "device_id": serial},
+            )
 
     self._rebuild_rgb_settings_placeholder()
     self._refresh_realsense_metadata_async(serial=serial)
@@ -288,10 +357,10 @@ def refresh_controls(self) -> None:
             project_root = str(self._app_ctx.project_root) if has_project else None
         except Exception:
             project_root = None
-        if project_root and project_root != self._last_project_root_seen:
+        if project_root != self._last_project_root_seen:
             self._last_project_root_seen = project_root
             try:
-                self._output_dir_edit.setText(str(self._default_output_dir() or ""))
+                self._restore_project_output_dir()
             except Exception:
                 pass
 
@@ -317,29 +386,28 @@ def refresh_controls(self) -> None:
             supports_depth = False
 
         try:
-            supports_depth = bool(supports_depth and self._rs_depth_checkbox.isChecked())
+            depth_enabled = bool(self._rs_depth_toggle.current_id == "enabled")
+            supports_depth = bool(supports_depth and depth_enabled)
         except Exception:
             supports_depth = False
         self._save_formats.set_option_enabled("depth", bool(supports_depth))
         if not supports_depth and want_depth:
             self._save_formats.set_checked("depth", False, emit=False)
 
-        depth_stream_enabled = False
-        try:
-            depth_stream_enabled = bool(supports_depth and self._rs_depth_checkbox.isChecked())
-        except Exception:
-            depth_stream_enabled = False
+        depth_stream_enabled = bool(supports_depth)
         try:
             self._stream_mode_toggle.set_option_enabled("depth", bool(depth_stream_enabled))
-            if not depth_stream_enabled and getattr(self, "_stream_mode", "rgb") == "depth":
+            self._stream_mode_toggle.set_option_enabled("overlay", bool(depth_stream_enabled))
+            current_mode = getattr(self, "_stream_mode", "rgb")
+            if not depth_stream_enabled and current_mode in ("depth", "overlay"):
                 self._stream_mode_toggle.set_current_id("rgb", emit=False)
-                self._set_stream_mode("rgb")
+                self._set_stream_mode("rgb", record_undo=False)
         except Exception:
             pass
 
-        rs_controls_enabled = bool(supports_depth and not starting and not running)
+        rs_controls_enabled = bool(not starting and not running)
         try:
-            for w in (self._rs_format_combo, self._rs_resolution_combo, self._rs_fps_combo, self._rs_depth_checkbox):
+            for w in (self._rs_format_combo, self._rs_resolution_combo, self._rs_fps_combo, self._rs_depth_toggle, self._rs_depth_align_toggle):
                 w.setEnabled(bool(rs_controls_enabled))
         except Exception:
             pass
@@ -376,6 +444,49 @@ def refresh_border(self) -> None:
     )
 
 
+def blend_rgb_depth_overlay(rgb_frame, depth_colorized):
+    """
+    Blend RGB and colorized depth frames with alpha compositing.
+
+    IMPORTANT: When using RealSense "Aligned to RGB" mode, depth and RGB frames
+    should already be the same resolution. This function will NOT resize aligned
+    frames - mismatched sizes indicate a configuration issue.
+
+    Args:
+        rgb_frame: HxWx3 uint8 RGB array (original camera frame)
+        depth_colorized: HxWx3 uint8 RGB array (colorized depth)
+
+    Returns:
+        HxWx3 uint8 RGB array (blended overlay)
+    """
+    import numpy as np
+
+    # Verify both frames are same size (required for correct overlay)
+    if rgb_frame.shape != depth_colorized.shape:
+        # This should NOT happen when using RealSense aligned mode
+        log.warning(
+            "RGB and depth frame size mismatch in overlay mode",
+            extra={
+                "operation": "capture",
+                "phase": "overlay_blend_size_mismatch",
+                "rgb_shape": rgb_frame.shape,
+                "depth_shape": depth_colorized.shape,
+            },
+        )
+        # Fallback: return RGB only (do NOT resize, as it would create incorrect overlay)
+        return rgb_frame
+
+    # Alpha blend: overlay = rgb * (1 - alpha) + depth * alpha
+    # Use 50% opacity for depth overlay (adjustable in future)
+    alpha = 0.5
+
+    rgb_f = rgb_frame.astype(np.float32)
+    depth_f = depth_colorized.astype(np.float32)
+
+    blended = rgb_f * (1.0 - alpha) + depth_f * alpha
+    return blended.astype(np.uint8)
+
+
 def refresh_preview(self) -> None:
     if not self._view_active:
         return
@@ -384,7 +495,9 @@ def refresh_preview(self) -> None:
         return
 
     mode = getattr(self, "_stream_mode", "rgb")
-    if mode != "depth":
+
+    # RGB mode: show color frame only
+    if mode == "rgb":
         try:
             rgb = frame.rgb
             h, w = int(rgb.shape[0]), int(rgb.shape[1])
@@ -396,6 +509,7 @@ def refresh_preview(self) -> None:
             log.debug("Failed to update preview (best-effort)", exc_info=True)
         return
 
+    # Depth and Overlay modes require depth data
     try:
         depth = getattr(frame, "depth", None)
         if depth is None:
@@ -410,17 +524,38 @@ def refresh_preview(self) -> None:
             self._preview_label.setText("Depth frame unsupported")
             return
 
-        rgb = self._render_depth_to_rgb(d)
-        h, w = int(rgb.shape[0]), int(rgb.shape[1])
-        bytes_per_line = int(rgb.strides[0])
-        qimg = QImage(rgb.data, w, h, bytes_per_line, QImage.Format.Format_RGB888).copy()
-        pix = QPixmap.fromImage(qimg)
-        self._preview_label.setPixmap(pix.scaled(self._preview_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        # Render depth with selected colormap
+        depth_rgb = self._render_depth_to_rgb(d)
+
+        # Depth mode: show colorized depth only
+        if mode == "depth":
+            h, w = int(depth_rgb.shape[0]), int(depth_rgb.shape[1])
+            bytes_per_line = int(depth_rgb.strides[0])
+            qimg = QImage(depth_rgb.data, w, h, bytes_per_line, QImage.Format.Format_RGB888).copy()
+            pix = QPixmap.fromImage(qimg)
+            self._preview_label.setPixmap(pix.scaled(self._preview_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            return
+
+        # Overlay mode: blend RGB and colorized depth
+        if mode == "overlay":
+            try:
+                rgb = frame.rgb
+                overlay = blend_rgb_depth_overlay(rgb, depth_rgb)
+                h, w = int(overlay.shape[0]), int(overlay.shape[1])
+                bytes_per_line = int(overlay.strides[0])
+                qimg = QImage(overlay.data, w, h, bytes_per_line, QImage.Format.Format_RGB888).copy()
+                pix = QPixmap.fromImage(qimg)
+                self._preview_label.setPixmap(pix.scaled(self._preview_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            except Exception:
+                log.debug("Failed to update overlay preview (best-effort)", exc_info=True)
+            return
+
     except Exception:
-        log.debug("Failed to update depth preview (best-effort)", exc_info=True)
+        log.debug("Failed to update depth/overlay preview (best-effort)", exc_info=True)
 
 
 __all__ = [
+    "blend_rgb_depth_overlay",
     "on_device_selected",
     "on_start_stop_clicked",
     "populate_devices_async",
