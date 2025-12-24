@@ -43,6 +43,8 @@ from __future__ import annotations
 
 import argparse
 import sys
+import tempfile
+import shutil
 from pathlib import Path
 
 # Add parent directory to path so we can import datalens
@@ -50,9 +52,26 @@ tests_dir = Path(__file__).parent
 project_root = tests_dir.parent
 sys.path.insert(0, str(project_root / "src"))
 
+def _cleanup_stale_test_dirs() -> None:
+    temp_root = Path(tempfile.gettempdir())
+    if not temp_root.exists():
+        return
+    stale = sorted(temp_root.glob("datalens_test_*"))
+    if not stale:
+        return
+    print(f"Cleaning stale DataLens test roots in {temp_root}")
+    for path in stale:
+        if not path.is_dir():
+            continue
+        try:
+            shutil.rmtree(path)
+        except Exception as exc:
+            print(f"Warning: failed to remove stale test dir {path}: {exc}")
+
 
 def main() -> int:
     """Run pytest with appropriate configuration for full-app testing."""
+    _cleanup_stale_test_dirs()
     parser = argparse.ArgumentParser(
         description="Run DataLens tests against the fully loaded application",
         epilog="All tests require the complete DataLens application to be loaded.",

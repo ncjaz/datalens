@@ -139,6 +139,9 @@ class VectorLayer(CanvasLayer):
     def remove_shape(self, shape_id: str) -> None:
         self._shapes.pop(str(shape_id), None)
 
+    def get_shape(self, shape_id: str) -> VectorShape | None:
+        return self._shapes.get(str(shape_id))
+
     def shapes(self) -> tuple[VectorShape, ...]:
         return tuple(self._shapes.values())
 

@@ -5,6 +5,7 @@ import traceback
 from collections.abc import Mapping
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QUndoStack
 from PySide6.QtWidgets import (
     QFrame,
     QGroupBox,
@@ -37,7 +38,6 @@ from .sections import (
     build_buttons_section,
     build_canvas_section,
     build_checkboxes_section,
-    build_color_picker_section,
     build_icons_section,
     build_loader_test_section,
     build_preferences_demo_section,
@@ -67,6 +67,8 @@ class WorkspaceWidget(QWidget):
         super().__init__(parent)
         self._theme = theme
         self._shortcut_button_bindings = dict(shortcut_button_bindings or {})
+        self._undo_stack = QUndoStack(self)
+        self._undo_stack.setUndoLimit(15)
         self._icon_animators: list[ButtonIconAnimator] = []
         self._log = get_logger("datalens.plugins.widget_test.ui")
         self._tooltip_unsub: object | None = None
@@ -130,7 +132,6 @@ class WorkspaceWidget(QWidget):
         add_section("Checkboxes", self._checkboxes_section)
         add_section("Icons", self._icons_section)
         add_section("Canvas", self._canvas_section)
-        add_section("Color Picker", self._color_picker_section)
         add_section("Toast Notifications", self._toast_demo_section)
         add_section("Shortcuts", self._shortcuts_section)
         add_section("Shortcuts Advanced", self._shortcuts_advanced_section)
@@ -209,10 +210,11 @@ class WorkspaceWidget(QWidget):
         )
 
     def _canvas_section(self) -> QWidget:
-        return build_canvas_section(self, theme=self._theme)
+        return build_canvas_section(self, theme=self._theme, undo_stack=self._undo_stack)
 
-    def _color_picker_section(self) -> QWidget:
-        return build_color_picker_section(self, theme=self._theme)
+    @property
+    def undo_stack(self) -> QUndoStack:
+        return self._undo_stack
 
     def _sharing_section(self) -> QWidget:
         return build_sharing_section(self, theme=self._theme)

@@ -26,7 +26,7 @@ class DatalensResizableSplitter(QSplitter):
     - Uses opaque resize (better performance than welcome screen's transparent)
     - Automatically saves/restores state to QSettings
     - Applies theme-consistent handle styling
-    - Can optionally allow child widgets to collapse (disabled by default)
+    - Prevents child widgets from collapsing
 
     Performance notes:
     - Opaque resize (default) only repaints on mouse release → smooth dragging
@@ -58,7 +58,6 @@ class DatalensResizableSplitter(QSplitter):
         state_key: str | None = None,
         handle_width: int = 6,
         opaque_resize: bool = True,
-        children_collapsible: bool = False,
         parent: QWidget | None = None,
     ) -> None:
         """
@@ -72,7 +71,6 @@ class DatalensResizableSplitter(QSplitter):
             handle_width: Width of the drag handle in pixels (default 6).
             opaque_resize: If True, only repaint on release (better performance).
                           If False, repaint continuously during drag (can lag).
-            children_collapsible: If True, panels may be collapsed by dragging to zero.
             parent: Parent widget.
         """
         super().__init__(orientation, parent)
@@ -83,7 +81,7 @@ class DatalensResizableSplitter(QSplitter):
 
         # Configure splitter behavior.
         self.setHandleWidth(handle_width)
-        self.setChildrenCollapsible(bool(children_collapsible))
+        self.setChildrenCollapsible(False)  # Prevent panels from collapsing
         self.setOpaqueResize(opaque_resize)
 
         # Set up QSettings scope if persistence is requested.

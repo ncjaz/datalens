@@ -12,6 +12,7 @@ from datalens.ui.main_window_components import (
     MainWindowUiStateController,
     ProjectActionsController,
     StatusBarController,
+    UndoRedoController,
     WorkspacesController,
     try_get_app_context,
 )
@@ -58,12 +59,22 @@ class MainWindow(QMainWindow):
             {PluginId(pid) for pid in enabled_plugin_ids} if enabled_plugin_ids is not None else None
         )
 
-        menubar = create_menubar(self)
+        self._undo_redo = UndoRedoController(self)
+
+        menubar = create_menubar(
+            self,
+            undo_actions=(self._undo_redo.undo_action, self._undo_redo.redo_action),
+        )
         self.setMenuBar(menubar)
         self._menubar = menubar
         self._menubar.set_recent_projects(self._recent_projects)
 
-        self._workspaces = WorkspacesController(self, plugins=self._plugins, enabled_plugin_ids=self._enabled_plugin_ids)
+        self._workspaces = WorkspacesController(
+            self,
+            plugins=self._plugins,
+            enabled_plugin_ids=self._enabled_plugin_ids,
+            on_active_workspace_widget_changed=self._undo_redo.set_active_workspace_widget,
+        )
         self.setCentralWidget(self._workspaces.central_widget)
 
         self._status_bar = StatusBarController(self)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from collections.abc import Callable
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QStackedWidget, QVBoxLayout, QWidget
@@ -32,10 +33,12 @@ class WorkspacesController:
         *,
         plugins: list[PluginRecord],
         enabled_plugin_ids: set[PluginId] | None,
+        on_active_workspace_widget_changed: Callable[[PluginId | None, QWidget | None], None] | None = None,
     ) -> None:
         self._window = window
         self._plugins = list(plugins)
         self._enabled_plugin_ids = enabled_plugin_ids
+        self._on_active_workspace_widget_changed = on_active_workspace_widget_changed
 
         self._active_workspace_id: PluginId | None = None
         self._last_project_root: Path | None = None
@@ -72,10 +75,23 @@ class WorkspacesController:
     def active_workspace_id(self) -> PluginId | None:
         return self._active_workspace_id
 
+    def _notify_active_workspace_widget_changed(self) -> None:
+        cb = self._on_active_workspace_widget_changed
+        if cb is None:
+            return
+        widget: QWidget | None = None
+        if self._active_workspace_id is not None:
+            widget = self._workspace_widgets.get(self._active_workspace_id)
+        try:
+            cb(self._active_workspace_id, widget)
+        except Exception:
+            log.debug("Active workspace callback failed (best-effort)", exc_info=True)
+
     def on_plugins_enabled(self) -> None:
         if self._active_workspace_id is None:
             return
         self.show_workspace_widget(self._active_workspace_id)
+        self._notify_active_workspace_widget_changed()
         self.publish_active_workspace(self._active_workspace_id)
         self._update_placeholder_text()
 
@@ -165,6 +181,7 @@ class WorkspacesController:
         self._active_workspace_id = workspace_id
         self.sidebar.set_selected(workspace_id)
         self.show_workspace_widget(workspace_id)
+        self._notify_active_workspace_widget_changed()
         self.publish_active_workspace(workspace_id)
         self._update_placeholder_text()
 

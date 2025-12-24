@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 from PySide6.QtCore import QPointF
-from PySide6.QtGui import QCursor, QMouseEvent, QWheelEvent
+from PySide6.QtGui import QCursor, QKeyEvent, QMouseEvent, QPainter, QWheelEvent
 
 from datalens.ui.canvas.viewport import ViewportTransform
 
@@ -38,3 +38,11 @@ class CanvasTool(Protocol):
     def on_wheel_event(self, event: QWheelEvent, view: ViewportTransform, image_pos: QPointF) -> ToolResult:
         ...
 
+    def on_key_event(self, event: QKeyEvent) -> ToolResult:
+        ...
+
+    def paint_overlay(self, painter: QPainter, view: ViewportTransform) -> None:
+        ...
+
+    def cancel(self) -> None:
+        ...

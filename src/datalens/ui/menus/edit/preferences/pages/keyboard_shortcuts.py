@@ -194,7 +194,6 @@ class KeyboardShortcutsPreferencesPage(QWidget):
             conflicts_label=self._conflicts_label,
             snap=snap,
             filter_key=self._filter_key,
-            show_consume_controls=bool(getattr(self._app_ctx, "dev_mode", False)),
             mode_is_keyboard_only=lambda default, effective: self._mode_is_keyboard_only(
                 default_chord=default,
                 effective_chord=effective,

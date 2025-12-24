@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QFormLayout,
@@ -15,7 +15,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from datalens.ui.qt_settings import plugin_ui_scope
 from datalens.ui.theme.app_theme import AppTheme
 from datalens.ui.widgets.core.buttons import ButtonVariant, DatalensButton
 from datalens.ui.widgets.core.icon_button import create_icon_button
@@ -53,23 +52,7 @@ def build(self, *, theme: AppTheme) -> None:
     preview_group_layout.setContentsMargins(10, 10, 10, 10)
     preview_group_layout.setSpacing(10)
 
-    # Split the preview into:
-    # - top: camera preview (status border lives here)
-    # - bottom: reserved (collapsible) panel for future tools/overlays
-    self._preview_splitter = DatalensResizableSplitter(
-        orientation=Qt.Vertical,
-        theme=theme,
-        plugin_id="capture",
-        state_key="preview_splitter",
-        handle_width=6,
-        opaque_resize=True,
-        children_collapsible=True,
-        parent=preview_group,
-    )
-    self._preview_splitter.setCollapsible(0, False)  # camera preview should not collapse
-    self._preview_splitter.setCollapsible(1, True)  # bottom panel may collapse to 0
-
-    self._preview_frame = QFrame(self._preview_splitter)
+    self._preview_frame = QFrame(preview_group)
     self._preview_frame.setObjectName("CapturePreviewFrame")
     self._preview_frame.setFrameShape(QFrame.NoFrame)
     preview_layout = QVBoxLayout(self._preview_frame)
@@ -83,45 +66,7 @@ def build(self, *, theme: AppTheme) -> None:
     self._preview_label.setMinimumHeight(360)
     self._preview_label.setMinimumWidth(300)
     preview_layout.addWidget(self._preview_label, 1)
-
-    self._preview_bottom_frame = QFrame(self._preview_splitter)
-    self._preview_bottom_frame.setObjectName("CapturePreviewBottomFrame")
-    self._preview_bottom_frame.setFrameShape(QFrame.NoFrame)
-    self._preview_bottom_frame.setMinimumHeight(0)
-    self._preview_bottom_frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-    bottom_layout = QVBoxLayout(self._preview_bottom_frame)
-    bottom_layout.setContentsMargins(10, 10, 10, 10)
-    bottom_layout.setSpacing(0)
-
-    self._preview_splitter.addWidget(self._preview_frame)
-    self._preview_splitter.addWidget(self._preview_bottom_frame)
-    self._preview_splitter.setStretchFactor(0, 2)
-    self._preview_splitter.setStretchFactor(1, 1)
-
-    # On first run (no persisted splitter state), default to 2/3 camera, 1/3 bottom.
-    try:
-        has_state = False
-        with plugin_ui_scope("capture", "splitters").open() as settings:
-            has_state = bool(settings.contains("preview_splitter"))
-        if not has_state:
-
-            def _apply_default_sizes() -> None:
-                try:
-                    h = int(self._preview_splitter.size().height())
-                except Exception:
-                    h = 0
-                if h <= 0:
-                    # Fallback: relative weights.
-                    self._preview_splitter.setSizes([2, 1])
-                    return
-                top = int(round(h * 2.0 / 3.0))
-                self._preview_splitter.setSizes([max(0, top), max(0, h - top)])
-
-            QTimer.singleShot(0, _apply_default_sizes)
-    except Exception:
-        pass
-
-    preview_group_layout.addWidget(self._preview_splitter, 1)
+    preview_group_layout.addWidget(self._preview_frame, 1)
 
     controls_scroll = QScrollArea(splitter)
     controls_scroll.setObjectName("CaptureControlsScroll")
@@ -170,6 +115,21 @@ def build(self, *, theme: AppTheme) -> None:
     camera_row_layout.addWidget(self._refresh_btn, 0, alignment=Qt.AlignVCenter)
 
     device_layout.addRow("Camera", camera_row)
+
+    self._scan_mode_toggle = Toggle(
+        theme,
+        ToggleOption("manual", "Manual"),
+        ToggleOption("auto", "Auto"),
+        exclusive=True,
+        parent=device_group,
+    )
+    self._scan_mode_toggle.set_size("small")
+    self._scan_mode_toggle.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+    self._scan_mode_toggle.apply_theme(theme)
+    self._scan_mode_toggle.set_current_id("manual", emit=False)
+    self._scan_mode_toggle.setObjectName("Capture:ScanModeToggle")
+    self._scan_mode_toggle.selectionChanged.connect(lambda mode: self._on_scan_mode_changed(str(mode)))
+    device_layout.addRow("Scanning", self._scan_mode_toggle)
 
     self._rs_format_label = QLabel("RGB Format", device_group)
     self._rs_format_combo = QComboBox(device_group)
@@ -246,6 +206,7 @@ def build(self, *, theme: AppTheme) -> None:
     self._output_dir_edit = QLineEdit(save_group)
     self._output_dir_edit.setPlaceholderText("Choose a folder to save captures")
     self._output_dir_edit.setClearButtonEnabled(True)
+    self._output_dir_edit.editingFinished.connect(lambda *_: self._on_output_dir_changed())
 
     self._browse_output_btn = DatalensButton("Browse…", theme, ButtonVariant.SECONDARY, save_group)
     self._browse_output_btn.clicked.connect(lambda *_: self._browse_output_dir())
@@ -272,7 +233,8 @@ def build(self, *, theme: AppTheme) -> None:
     self._save_formats.apply_theme(theme)
     self._save_formats.set_checked("rgb", True, emit=False)
     self._save_formats.set_checked("depth", False, emit=False)
-    self._save_formats.optionToggled.connect(lambda option_id, checked: self._on_save_format_toggled(str(option_id), bool(checked)))
+    self._save_formats.setObjectName("Capture:SaveFormatsToggle")
+    self._save_formats.optionToggled.connect(lambda opt_id, checked: self._on_save_format_toggled(str(opt_id), bool(checked)))
 
     save_layout.addRow("Formats", self._save_formats)
 
@@ -303,6 +265,7 @@ def build(self, *, theme: AppTheme) -> None:
     self._stream_mode_toggle.set_size("tiny")
     self._stream_mode_toggle.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)  # Don't stretch
     self._stream_mode_toggle.apply_theme(theme)
+    self._stream_mode_toggle.setObjectName("Capture:StreamModeToggle")
     self._stream_mode_toggle.selectionChanged.connect(lambda mode: self._set_stream_mode(str(mode)))
     self._stream_mode_toggle.set_current_id("rgb", emit=False)
 

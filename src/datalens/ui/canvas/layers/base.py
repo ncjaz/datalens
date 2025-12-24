@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Protocol, runtime_checkable
 
@@ -21,16 +21,12 @@ class HitKind(str, Enum):
     HUD = "hud"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class CanvasHit:
     layer_id: CanvasLayerId
     kind: HitKind
     image_pos: QPointF
-    payload: dict[str, Any] = None  # type: ignore[assignment]
-
-    def __post_init__(self) -> None:
-        if self.payload is None:
-            object.__setattr__(self, "payload", {})
+    payload: dict[str, Any] = field(default_factory=dict)
 
 
 @runtime_checkable
@@ -52,4 +48,3 @@ class CanvasLayer(Protocol):
         Return a hit result for the given image-space position, or None.
         """
         return None
-

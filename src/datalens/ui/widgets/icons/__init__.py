@@ -2,7 +2,6 @@ from datalens.ui.widgets.icons.annotation_toggle_icon import annotation_toggle_i
 from datalens.ui.widgets.icons.auto_icon import auto_icon
 from datalens.ui.widgets.icons.autodiscovery_icon import autodiscovery_icon
 from datalens.ui.widgets.icons.chevron_icon import chevron_icon
-from datalens.ui.widgets.icons.clear_icon import clear_icon
 from datalens.ui.widgets.icons.error_icon import error_icon
 from datalens.ui.widgets.icons.eye_icon import eye_icon
 from datalens.ui.widgets.icons.info_icon import info_icon
@@ -18,7 +17,6 @@ __all__ = [
     "auto_icon",
     "autodiscovery_icon",
     "chevron_icon",
-    "clear_icon",
     "error_icon",
     "eye_icon",
     "info_icon",

@@ -26,7 +26,6 @@ from datalens.domain.plugin.preferences_schema import PathKind, PluginPreference
 from datalens.ui.widgets.core.buttons import ButtonVariant, DatalensButton
 from datalens.ui.widgets.core.checkboxes import DatalensCheckBox
 from datalens.ui.widgets.core.toggle import Toggle, ToggleOption
-from datalens.ui.widgets.color_picker import ColorPickerWidget, ColorValue
 from datalens.ui.widgets.icons import reset_icon
 from datalens.ui.widgets.layouts import auto_size_form_layout
 
@@ -336,17 +335,6 @@ class PluginPreferencesPage(QWidget):
             spin.valueChanged.connect(lambda v: _write(float(v)))
             widget = spin
 
-        elif field.kind == PreferenceKind.COLOR:
-            picker = ColorPickerWidget(theme=app_ctx.theme, parent=parent)
-            current = prefs.get(plugin_id, field.key, default=field.default)
-            if isinstance(current, dict):
-                try:
-                    picker.set_value(ColorValue.from_dict(current))
-                except Exception:
-                    pass
-            picker.color_changed.connect(lambda v: _write(v.to_dict() if hasattr(v, "to_dict") else picker.to_dict()))
-            widget = picker
-
         elif field.kind in (PreferenceKind.STRING, PreferenceKind.PATH):
             row = QWidget(parent)
             h = QHBoxLayout(row)
@@ -425,13 +413,6 @@ class PluginPreferencesPage(QWidget):
                 elif isinstance(b.widget, QDoubleSpinBox):
                     if isinstance(value, (int, float)):
                         b.widget.setValue(float(value))
-                elif isinstance(b.widget, ColorPickerWidget):
-                    if isinstance(value, dict):
-                        b.widget.blockSignals(True)
-                        try:
-                            b.widget.from_dict(value)
-                        finally:
-                            b.widget.blockSignals(False)
                 else:
                     # String/path rows contain a QLineEdit
                     edit = b.widget.findChild(QLineEdit)

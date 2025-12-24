@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtWidgets import QMainWindow, QMenuBar
+from PySide6.QtGui import QAction
 
 from datalens.ui.menus.contracts import MenuControllers
 from datalens.ui.menus.file.menu import FileMenuHandle
@@ -20,10 +21,17 @@ class DatalensMenuBar(QMenuBar):
     monolithic as menus grow.
     """
 
-    def __init__(self, main_window: QMainWindow, *, controllers: MenuControllers) -> None:
+    def __init__(
+        self,
+        main_window: QMainWindow,
+        *,
+        controllers: MenuControllers,
+        undo_actions: tuple[QAction, QAction] | None = None,
+    ) -> None:
         super().__init__(main_window)
         self._main_window = main_window
         self._controllers = controllers
+        self._undo_actions = undo_actions
         self._file_handle: FileMenuHandle | None = None
         self._build_menus()
 
@@ -34,7 +42,7 @@ class DatalensMenuBar(QMenuBar):
         help_menu = self.addMenu("Help")
 
         self._file_handle = populate_file_menu(file_menu, controller=self._controllers.file)
-        populate_edit_menu(edit_menu, controller=self._controllers.edit)
+        populate_edit_menu(edit_menu, controller=self._controllers.edit, undo_actions=self._undo_actions)
         populate_plugins_menu(plugins_menu, controller=self._controllers.plugins)
         populate_help_menu(help_menu, controller=self._controllers.help)
 

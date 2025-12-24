@@ -32,44 +32,6 @@
         ],
         "id": "devices",
         "title": "Devices"
-      },
-      {
-        "description": "Preview border colors and capture highlight behavior.",
-        "fields": [
-          {
-            "default": { "r": 239, "g": 68, "b": 68, "opacity": 1.0, "theme_reference": "accent_cancel_border" },
-            "description": "Border color when the camera is off or no frames are available.",
-            "kind": "color",
-            "key": "preview_border_off_color",
-            "title": "Camera off border"
-          },
-          {
-            "default": { "r": 34, "g": 197, "b": 94, "opacity": 0.25, "theme_reference": "accent_confirm_border" },
-            "description": "Border color while streaming (defaults to confirm border at 25% opacity).",
-            "kind": "color",
-            "key": "preview_border_on_color",
-            "title": "Camera on border"
-          },
-          {
-            "default": { "r": 34, "g": 197, "b": 94, "opacity": 1.0, "theme_reference": "accent_confirm_border" },
-            "description": "Border color used immediately after a capture (defaults to confirm border at 100% opacity).",
-            "kind": "color",
-            "key": "preview_border_capture_color",
-            "title": "Capture border"
-          },
-          {
-            "default": 1000,
-            "description": "How long it takes (ms) for the capture border to fade back to the camera-on border (0 disables the highlight).",
-            "kind": "int",
-            "key": "preview_border_capture_fade_ms",
-            "min": 0,
-            "max": 5000,
-            "step": 50,
-            "title": "Capture fade duration (ms)"
-          }
-        ],
-        "id": "preview",
-        "title": "Preview"
       }
     ],
     "title": "Capture"

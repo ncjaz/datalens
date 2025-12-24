@@ -38,7 +38,7 @@ def show_webcam_settings(self, *, device: CameraDevice) -> None:
         current_mode = getattr(self, "_stream_mode", "rgb")
         if current_mode in ("depth", "overlay"):
             self._stream_mode_toggle.set_current_id("rgb", emit=False)
-            self._set_stream_mode("rgb")
+            self._set_stream_mode("rgb", record_undo=False)
     except Exception:
         pass
 
@@ -131,6 +131,14 @@ def refresh_webcam_metadata_async(self, *, device: CameraDevice) -> None:
 def rebuild_webcam_settings_from_specs(self, specs: tuple[CameraOptionSpec, ...], *, device: CameraDevice) -> None:
     self._clear_form_layout(self._rgb_options_layout)
     self._rs_option_widgets.clear()
+    try:
+        self._rs_option_labels.clear()
+    except Exception:
+        pass
+    try:
+        self._camera_option_ui_setters.clear()
+    except Exception:
+        pass
 
     entries = [s for s in (specs or ()) if isinstance(s, CameraOptionSpec) and s.sensor == "rgb"]
     if not entries:
@@ -141,6 +149,16 @@ def rebuild_webcam_settings_from_specs(self, specs: tuple[CameraOptionSpec, ...]
         return
 
     by_id: dict[str, CameraOptionSpec] = {str(s.id): s for s in entries}
+
+    def _register_ui(opt_id: str, label: str, setter) -> None:
+        try:
+            self._rs_option_labels[str(opt_id)] = str(label)
+        except Exception:
+            pass
+        try:
+            self._camera_option_ui_setters[str(opt_id)] = setter
+        except Exception:
+            pass
 
     auto_pairs: dict[str, tuple[str, float, float]] = {
         "exposure": ("auto_exposure", 0.75, 0.25),
@@ -188,16 +206,49 @@ def rebuild_webcam_settings_from_specs(self, specs: tuple[CameraOptionSpec, ...]
             float(step) if float(step) != 0 else 0.01,
             default_value=float(default),
         )
-        if spec.current is not None:
+        opt_id = str(spec.id)
+        setting = f"cv_rgb_option/{opt_id}"
+        stored = None
+        try:
+            stored = self._load_device_preference(str(device.device_id), setting, default=None)
+        except Exception:
+            stored = None
+        initial = None
+        try:
+            initial = float(stored) if stored is not None else (float(spec.current) if spec.current is not None else None)
+        except Exception:
+            initial = None
+        if initial is not None:
             try:
-                slider.setValue(float(spec.current))
+                slider.setValue(float(initial))
             except Exception:
                 pass
         slider.valueChanged.connect(
-            lambda value, opt_id=str(spec.id): self._service.set_webcam_option(
-                device_id=str(device.device_id), option_id=opt_id, value=float(value)
-            )
+            lambda value, oid=opt_id: self._on_webcam_rgb_option_changed(device_id=str(device.device_id), option_id=oid, value=float(value))
         )
+        try:
+            self._rs_option_widgets[opt_id] = slider
+        except Exception:
+            pass
+
+        def _setter(v: object, w=slider) -> None:
+            try:
+                fv = float(v)
+            except Exception:
+                return
+            try:
+                w.blockSignals(True)
+                w.setValue(float(fv))
+            finally:
+                w.blockSignals(False)
+
+        _register_ui(opt_id, str(spec.label), _setter)
+        try:
+            if initial is not None:
+                pref_key = f"devices/{str(device.device_id)}/{setting}"
+                self._cache_set(pref_key, float(initial))
+        except Exception:
+            pass
         return slider
 
     def _wrap_with_auto(
@@ -223,14 +274,20 @@ def rebuild_webcam_settings_from_specs(self, specs: tuple[CameraOptionSpec, ...]
         btn.setObjectName("CaptureAutoOptionButton")
         def update_icon(checked_state: bool) -> None:
             bg = self._theme.confirm_color if checked_state else self._theme.cancel_color
-            btn.setIcon(auto_icon(self._theme, size=btn.iconSize().width(), background_color=bg))
+            btn.setIcon(auto_icon(self._theme, size=18, background_color=bg))
 
         def update_tooltip(checked_state: bool) -> None:
             state = "Enabled" if checked_state else "Disabled"
             action = "disable" if checked_state else "enable"
             btn.setToolTip(f"Auto: {state}\nClick to {action} auto")
 
-        checked = _auto_checked(auto_id)
+        setting = f"cv_rgb_option/{str(auto_id)}"
+        stored_auto = None
+        try:
+            stored_auto = self._load_device_preference(str(device.device_id), setting, default=None)
+        except Exception:
+            stored_auto = None
+        checked = bool(float(stored_auto) >= 0.5) if stored_auto is not None else _auto_checked(auto_id)
         btn.setChecked(bool(checked))
         manual_widget.setEnabled(bool(not checked))
         update_icon(bool(checked))
@@ -238,24 +295,58 @@ def rebuild_webcam_settings_from_specs(self, specs: tuple[CameraOptionSpec, ...]
 
         def on_toggled(checked_state: bool) -> None:
             v = float(auto_on if checked_state else auto_off)
-            self._service.set_webcam_option(device_id=str(device.device_id), option_id=str(auto_id), value=v)
+            from PySide6.QtGui import QUndoStack
+
+            stack = getattr(self, "undo_stack", None)
+            if not checked_state and isinstance(stack, QUndoStack):
+                stack.beginMacro(f"Disable auto {manual_spec.label}")
+                try:
+                    self._on_webcam_rgb_option_changed(device_id=str(device.device_id), option_id=str(auto_id), value=v)
+                    if isinstance(manual_widget, DatalensSliderOption):
+                        try:
+                            self._on_webcam_rgb_option_changed(
+                                device_id=str(device.device_id),
+                                option_id=str(manual_spec.id),
+                                value=float(manual_widget.value()),
+                            )
+                        except Exception:
+                            pass
+                finally:
+                    stack.endMacro()
+            else:
+                self._on_webcam_rgb_option_changed(device_id=str(device.device_id), option_id=str(auto_id), value=v)
             manual_widget.setEnabled(bool(not checked_state))
             update_icon(bool(checked_state))
             update_tooltip(bool(checked_state))
-            if not checked_state:
-                # Re-apply the current manual value when leaving auto.
-                if isinstance(manual_widget, DatalensSliderOption):
-                    try:
-                        self._service.set_webcam_option(
-                            device_id=str(device.device_id),
-                            option_id=str(manual_spec.id),
-                            value=float(manual_widget.value()),
-                        )
-                    except Exception:
-                        pass
 
         btn.toggled.connect(on_toggled)
         row_layout.addWidget(btn, 0, alignment=Qt.AlignVCenter)
+
+        manual_id = str(manual_spec.id)
+        auto_id_s = str(auto_id)
+        try:
+            self._rs_option_widgets[auto_id_s] = btn
+        except Exception:
+            pass
+
+        def _auto_setter(v: object, w=btn, manual=manual_widget) -> None:
+            checked_state = bool(float(v) >= 0.5) if not isinstance(v, bool) else bool(v)
+            try:
+                w.blockSignals(True)
+                w.setChecked(bool(checked_state))
+            finally:
+                w.blockSignals(False)
+            manual.setEnabled(bool(not checked_state))
+            update_icon(bool(checked_state))
+            update_tooltip(bool(checked_state))
+
+        _register_ui(auto_id_s, str(auto_id_s), _auto_setter)
+        try:
+            pref_key = f"devices/{str(device.device_id)}/cv_rgb_option/{auto_id_s}"
+            stored_value = float(auto_on if checked else auto_off)
+            self._cache_set(pref_key, stored_value)
+        except Exception:
+            pass
         return row
 
     # Order: auto-related settings first (V1-ish UX).
@@ -315,44 +406,106 @@ def rebuild_webcam_settings_from_specs(self, specs: tuple[CameraOptionSpec, ...]
                 continue
 
         if spec.kind == "bool":
+            opt_id = str(spec.id)
+            setting = f"cv_rgb_option/{opt_id}"
+            stored = None
+            try:
+                stored = self._load_device_preference(str(device.device_id), setting, default=None)
+            except Exception:
+                stored = None
             cb = DatalensCheckBox("", self._theme, self._rgb_options_widget)
-            cb.setChecked(bool(spec.current) if spec.current is not None else True)
+            initial = bool(stored) if stored is not None else (bool(spec.current) if spec.current is not None else True)
+            cb.setChecked(bool(initial))
             cb.toggled.connect(
-                lambda checked, opt_id=str(spec.id): self._service.set_webcam_option(
-                    device_id=str(device.device_id), option_id=opt_id, value=bool(checked)
-                )
+                lambda checked, oid=opt_id: self._on_webcam_rgb_option_changed(device_id=str(device.device_id), option_id=oid, value=bool(checked))
             )
             self._rgb_options_layout.addRow(str(spec.label), cb)
+            try:
+                self._rs_option_widgets[opt_id] = cb
+            except Exception:
+                pass
+
+            def _setter(v: object, w=cb) -> None:
+                try:
+                    w.blockSignals(True)
+                    w.setChecked(bool(v))
+                finally:
+                    w.blockSignals(False)
+
+            _register_ui(opt_id, str(spec.label), _setter)
+            try:
+                pref_key = f"devices/{str(device.device_id)}/{setting}"
+                self._cache_set(pref_key, bool(initial))
+            except Exception:
+                pass
             continue
 
         if spec.kind == "enum":
+            opt_id = str(spec.id)
+            setting = f"cv_rgb_option/{opt_id}"
+            stored = None
+            try:
+                stored = self._load_device_preference(str(device.device_id), setting, default=None)
+            except Exception:
+                stored = None
             combo = QComboBox(self._rgb_options_widget)
             for value, label in spec.enum_items:
                 combo.addItem(str(label), float(value))
-            if spec.current is not None:
+            try:
+                current_v = float(stored) if stored is not None else (float(spec.current) if spec.current is not None else None)
+            except Exception:
+                current_v = None
+            if current_v is not None:
+                best = None
+                best_idx = 0
+                for idx in range(combo.count()):
+                    v = combo.itemData(idx)
+                    try:
+                        dv = abs(float(v) - float(current_v))
+                    except Exception:
+                        continue
+                    if best is None or dv < best:
+                        best = dv
+                        best_idx = idx
+                combo.setCurrentIndex(best_idx)
+            combo.currentIndexChanged.connect(
+                lambda _=0, oid=opt_id, w=combo: self._on_webcam_rgb_option_changed(device_id=str(device.device_id), option_id=oid, value=float(w.currentData()))
+            )
+            self._rgb_options_layout.addRow(str(spec.label), combo)
+            try:
+                self._rs_option_widgets[opt_id] = combo
+            except Exception:
+                pass
+
+            def _setter(v: object, w=combo) -> None:
                 try:
-                    current_v = float(spec.current)
+                    target = float(v)
                 except Exception:
-                    current_v = None
-                if current_v is not None:
+                    return
+                try:
+                    w.blockSignals(True)
                     best = None
                     best_idx = 0
-                    for idx in range(combo.count()):
-                        v = combo.itemData(idx)
+                    for idx in range(w.count()):
+                        d = w.itemData(idx)
                         try:
-                            dv = abs(float(v) - float(current_v))
+                            dv = abs(float(d) - float(target))
                         except Exception:
                             continue
                         if best is None or dv < best:
                             best = dv
                             best_idx = idx
-                    combo.setCurrentIndex(best_idx)
-            combo.currentIndexChanged.connect(
-                lambda _=0, opt_id=str(spec.id), w=combo: self._service.set_webcam_option(
-                    device_id=str(device.device_id), option_id=opt_id, value=float(w.currentData())
-                )
-            )
-            self._rgb_options_layout.addRow(str(spec.label), combo)
+                    w.setCurrentIndex(best_idx)
+                finally:
+                    w.blockSignals(False)
+
+            _register_ui(opt_id, str(spec.label), _setter)
+            try:
+                if current_v is not None:
+                    pref_key = f"devices/{str(device.device_id)}/{setting}"
+                    self._cache_set(pref_key, float(current_v))
+            except Exception:
+                pass
             continue
 
         label = QLabel("Unsupported", self._rgb_options_widget)

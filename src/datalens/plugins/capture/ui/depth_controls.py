@@ -5,6 +5,15 @@ from PySide6.QtWidgets import QDoubleSpinBox, QHBoxLayout, QWidget
 from datalens.core.logging import get_logger
 from datalens.ui.widgets.core.checkboxes import DatalensCheckBox
 
+from .workspace_constants import (
+    _DEFAULT_DEPTH_AUTO_SCALE,
+    _DEFAULT_DEPTH_FAR_M,
+    _DEFAULT_DEPTH_NEAR_M,
+    _DEFAULT_DEPTH_PERCENTILE_HIGH,
+    _DEFAULT_DEPTH_PERCENTILE_LOW,
+    _DEFAULT_DEPTH_USE_PERCENTILES,
+)
+
 from ..service import CameraDevice, CameraKind
 
 log = get_logger(__name__)
@@ -33,7 +42,10 @@ def on_depth_stream_toggled(self) -> None:
     depth_enabled = bool(self._rs_depth_toggle.current_id == "enabled")
     if not depth_enabled and getattr(self, "_stream_mode", "rgb") == "depth":
         self._stream_mode_toggle.set_current_id("rgb", emit=False)
-        set_stream_mode(self, "rgb")
+        try:
+            self._set_stream_mode("rgb", record_undo=False)
+        except Exception:
+            set_stream_mode(self, "rgb")
 
     self._refresh_controls()
 
@@ -101,27 +113,27 @@ def build_depth_visualization_controls(self) -> None:
         "Viridis/Plasma/Inferno: Perceptually uniform scientific colormaps\n"
         "Turbo: Improved rainbow colormap with better contrast"
     )
-    self._depth_colormap_combo.currentIndexChanged.connect(lambda *_: on_colormap_changed(self))
+    self._depth_colormap_combo.currentIndexChanged.connect(lambda *_: self._on_colormap_changed())
     self._depth_options_layout.addRow("Colormap", self._depth_colormap_combo)
 
     self._depth_auto_scale = DatalensCheckBox("Auto-scale depth range", self._theme, self._depth_options_widget)
-    self._depth_auto_scale.setChecked(True)
+    self._depth_auto_scale.setChecked(bool(_DEFAULT_DEPTH_AUTO_SCALE))
     self._depth_auto_scale.setToolTip(
         "Automatically adjust depth range for visualization.\n"
         "When enabled, uses either percentile or min/max values from the current frame.\n"
         "When disabled, uses fixed near/far distances."
     )
-    self._depth_auto_scale.toggled.connect(lambda *_: sync_depth_visualization_controls(self))
+    self._depth_auto_scale.toggled.connect(lambda checked: self._on_depth_auto_scale_toggled(bool(checked)))
     self._depth_options_layout.addRow("", self._depth_auto_scale)
 
     self._depth_use_percentiles = DatalensCheckBox("Use percentiles for auto-scale", self._theme, self._depth_options_widget)
-    self._depth_use_percentiles.setChecked(True)
+    self._depth_use_percentiles.setChecked(bool(_DEFAULT_DEPTH_USE_PERCENTILES))
     self._depth_use_percentiles.setToolTip(
         "Use percentile-based range calculation instead of min/max.\n"
         "Percentiles (default 1% to 99%) filter out outliers for better visualization.\n"
         "Disabled: uses absolute minimum and maximum depth values in the frame."
     )
-    self._depth_use_percentiles.toggled.connect(lambda *_: sync_depth_visualization_controls(self))
+    self._depth_use_percentiles.toggled.connect(lambda checked: self._on_depth_use_percentiles_toggled(bool(checked)))
     self._depth_options_layout.addRow("", self._depth_use_percentiles)
 
     perc_row = QWidget(self._depth_options_widget)
@@ -132,7 +144,7 @@ def build_depth_visualization_controls(self) -> None:
     self._depth_percentile_low = QDoubleSpinBox(perc_row)
     self._depth_percentile_low.setRange(0.0, 100.0)
     self._depth_percentile_low.setSingleStep(0.5)
-    self._depth_percentile_low.setValue(1.0)
+    self._depth_percentile_low.setValue(float(_DEFAULT_DEPTH_PERCENTILE_LOW))
     self._depth_percentile_low.setSuffix("%")
     self._depth_percentile_low.setToolTip(
         "Lower percentile threshold (default 1%).\n"
@@ -143,7 +155,7 @@ def build_depth_visualization_controls(self) -> None:
     self._depth_percentile_high = QDoubleSpinBox(perc_row)
     self._depth_percentile_high.setRange(0.0, 100.0)
     self._depth_percentile_high.setSingleStep(0.5)
-    self._depth_percentile_high.setValue(99.0)
+    self._depth_percentile_high.setValue(float(_DEFAULT_DEPTH_PERCENTILE_HIGH))
     self._depth_percentile_high.setSuffix("%")
     self._depth_percentile_high.setToolTip(
         "Upper percentile threshold (default 99%).\n"
@@ -154,11 +166,13 @@ def build_depth_visualization_controls(self) -> None:
     perc_layout.addWidget(self._depth_percentile_low, 1)
     perc_layout.addWidget(self._depth_percentile_high, 1)
     self._depth_options_layout.addRow("Percentiles", perc_row)
+    self._depth_percentile_low.valueChanged.connect(lambda *_: self._on_depth_percentile_low_changed())
+    self._depth_percentile_high.valueChanged.connect(lambda *_: self._on_depth_percentile_high_changed())
 
     self._depth_manual_near_m = QDoubleSpinBox(self._depth_options_widget)
     self._depth_manual_near_m.setRange(0.0, 20.0)
     self._depth_manual_near_m.setSingleStep(0.05)
-    self._depth_manual_near_m.setValue(0.2)
+    self._depth_manual_near_m.setValue(float(_DEFAULT_DEPTH_NEAR_M))
     self._depth_manual_near_m.setSuffix(" m")
     self._depth_manual_near_m.setToolTip(
         "Closest distance for manual range (default 0.2 m).\n"
@@ -166,11 +180,12 @@ def build_depth_visualization_controls(self) -> None:
         "Only used when auto-scale is disabled."
     )
     self._depth_options_layout.addRow("Near", self._depth_manual_near_m)
+    self._depth_manual_near_m.valueChanged.connect(lambda *_: self._on_depth_manual_near_changed())
 
     self._depth_manual_far_m = QDoubleSpinBox(self._depth_options_widget)
     self._depth_manual_far_m.setRange(0.0, 20.0)
     self._depth_manual_far_m.setSingleStep(0.05)
-    self._depth_manual_far_m.setValue(2.0)
+    self._depth_manual_far_m.setValue(float(_DEFAULT_DEPTH_FAR_M))
     self._depth_manual_far_m.setSuffix(" m")
     self._depth_manual_far_m.setToolTip(
         "Farthest distance for manual range (default 2.0 m).\n"
@@ -178,6 +193,7 @@ def build_depth_visualization_controls(self) -> None:
         "Only used when auto-scale is disabled."
     )
     self._depth_options_layout.addRow("Far", self._depth_manual_far_m)
+    self._depth_manual_far_m.valueChanged.connect(lambda *_: self._on_depth_manual_far_changed())
 
     sync_depth_visualization_controls(self)
 
@@ -431,4 +447,3 @@ __all__ = [
     "set_stream_mode",
     "sync_depth_visualization_controls",
 ]
-

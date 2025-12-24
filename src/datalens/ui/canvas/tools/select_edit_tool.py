@@ -104,6 +104,12 @@ class SelectEditTool(CanvasTool):
             return False
 
         if sel.vertex_index < 0:
+            undo_payload = VectorShape(
+                shape_id=current.shape_id,
+                points=tuple(QPointF(float(p.x()), float(p.y())) for p in current.points),
+                closed=current.closed,
+                style=current.style,
+            )
             self._layer.remove_shape(current.shape_id)
             self._set_selected(None)
             self._emit_edit(
@@ -111,6 +117,7 @@ class SelectEditTool(CanvasTool):
                     kind=CanvasEditKind.SHAPE_DELETED,
                     layer_id=self._layer.layer_id,
                     shape_id=str(current.shape_id),
+                    undo_payload=undo_payload,
                 )
             )
             log.info(
@@ -124,10 +131,16 @@ class SelectEditTool(CanvasTool):
             self._set_selected(None)
             return False
 
-        pts.pop(sel.vertex_index)
+        removed_pt = pts.pop(sel.vertex_index)
 
         min_points = 3 if current.closed else 2
         if current.closed and len(pts) < min_points:
+            undo_payload = VectorShape(
+                shape_id=current.shape_id,
+                points=tuple(QPointF(float(p.x()), float(p.y())) for p in current.points),
+                closed=current.closed,
+                style=current.style,
+            )
             self._layer.remove_shape(current.shape_id)
             self._set_selected(None)
             self._emit_edit(
@@ -135,6 +148,7 @@ class SelectEditTool(CanvasTool):
                     kind=CanvasEditKind.SHAPE_DELETED,
                     layer_id=self._layer.layer_id,
                     shape_id=str(current.shape_id),
+                    undo_payload=undo_payload,
                 )
             )
             log.info(
@@ -144,6 +158,12 @@ class SelectEditTool(CanvasTool):
             return True
 
         if (not current.closed) and len(pts) < min_points:
+            undo_payload = VectorShape(
+                shape_id=current.shape_id,
+                points=tuple(QPointF(float(p.x()), float(p.y())) for p in current.points),
+                closed=current.closed,
+                style=current.style,
+            )
             self._layer.remove_shape(current.shape_id)
             self._set_selected(None)
             self._emit_edit(
@@ -151,6 +171,7 @@ class SelectEditTool(CanvasTool):
                     kind=CanvasEditKind.SHAPE_DELETED,
                     layer_id=self._layer.layer_id,
                     shape_id=str(current.shape_id),
+                    undo_payload=undo_payload,
                 )
             )
             log.info(
@@ -175,6 +196,7 @@ class SelectEditTool(CanvasTool):
                 layer_id=self._layer.layer_id,
                 shape_id=str(current.shape_id),
                 vertex_index=int(sel.vertex_index),
+                from_pos=QPointF(float(removed_pt.x()), float(removed_pt.y())),
             )
         )
         log.info(

@@ -54,6 +54,10 @@ class CanvasEditEvent:
     dx: float | None = None
     dy: float | None = None
 
+    # Optional: minimal payload used by undo commands for non-idempotent edits
+    # (e.g. shape deletion). This is intentionally typed as `object` because
+    # different layers may carry different payloads.
+    undo_payload: object | None = None
+
 
 __all__ = ["CanvasEditEvent", "CanvasEditKind"]
-

@@ -71,9 +71,6 @@ class AppContext:
     plugin_state: PluginStateRegistry
     preferences: PluginPreferencesService
     shortcuts: ShortcutsService
-    # Developer mode enables advanced UI controls (e.g. consume-event toggles in
-    # the shortcuts editor). It is not persisted; it is set at startup via CLI.
-    dev_mode: bool = False
     active_project: ProjectContext | None = None
     project_flush_hooks: list[ProjectFlushHook] = field(default_factory=list)
     pre_project_open_hooks: list[PreProjectOpenHook] = field(default_factory=list)

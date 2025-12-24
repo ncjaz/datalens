@@ -68,7 +68,6 @@ class FrameBundle:
 
     depth: DepthArray | None = None
     intrinsics: CameraIntrinsics | None = None
-    depth_intrinsics: CameraIntrinsics | None = None
 
     # Optional linkage to the project media index after saving/registration.
     media_id: MediaId | None = None
@@ -77,3 +76,4 @@ class FrameBundle:
     @property
     def has_depth(self) -> bool:
         return self.depth is not None
+
